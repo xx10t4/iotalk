@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>My IOTA Chat</title>
+
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+ 
+    <script src="https://code.jquery.com/jquery-2.2.2.min.js" crossorigin="anonymous"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/iota.js"></script>
+    <script type="text/javascript" src="js/index.js"></script>
+</head>
+<body>
+   <main>
+        <header class="header">
+            <p class="header__title">IOTAlk</p>
+        </header>
+
+        <section class="login_section">
+            <div class="row">
+                <div class="col-xs-12">
+                    <div id="login-message" class="hidden"> </div>
+                    <div class="form-group">
+                         <input type="password" id="userSeed" class="form-control" placeholder="Enter Your Seed">
+                    </div>
+                </div>
+                <div class="login_button">
+                    <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
+                </div>                       
+            </div>      
+        </section>
+
+        <section class="messenger_section hidden">
+            <div class="row">
+
+                <div class="col-xs-12 send__body-title">
+                    <p class="send__body-balance"><img class="send__logo" src="images/logo-black.png" /> Balance: <span class="label label-primary" id="iota_balance">-</span></p>
+                </div>
+
+                <div class="col-xs-6">
+                    <div class="form-group">
+                        <label for="name">Your Name</label>
+                        <input type="text" maxlength="16" class="form-control" id="name" placeholder="Enter Name">
+                    </div>
+                </div>
+
+                <div class="col-xs-6">
+                    <div class="form-group">
+                        <label for="value">Value</label>
+                        <input type="number" class="form-control" id="value" placeholder="Value to Send">
+                    </div>
+                </div>
+
+                <div class="col-xs-12">
+                    <div class="form-group">
+                        <label for="name">Your Seed</label>
+                        <input type="password" id="userSeed" class="form-control" placeholder="Enter Seed">
+                    </div>
+                </div>
+
+                <div class="col-xs-12">
+                    <div class = "form-group">
+                        <label for="address">Recipient Address</label>
+                        <input type="text" class="form-control" id="address" placeholder="IOTA address of recipient">
+                    </div>
+                </div>
+
+                <div class="col-xs-12">
+                    <div class = "form-group">
+                        <label for="message">Message</label>
+                        <textarea id="message" class="form-control" rows="3" placeholder="Message to send"></textarea>
+                    </div>
+                </div>
+
+                <div class="send__button">
+                    <button class="btn btn-success btn-lg" id="submit">Submit</button>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <section class="waiting_section hidden">
+           <div class="row">
+                <div class="col-xs-12">
+                     <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span>                   
+                </div>
+            </div>
+        </section>
+
+    </main>
+    
+  </body>
+</html>
