@@ -16,10 +16,12 @@
   ],
   "author": "GitHub",
   "license": "CC0-1.0",
-  "devDependencies": {
-    "electron": "~1.6.2",
+  "dependencies": {
     "jquery": "~3.2.1",
-    "ntrujs": "~1.0.7",
+    "ntrujs": "IDWMaster/ntrujs#59a653081ca39e8a776d8decfbfbbffbf24db203",
     "iota.lib.js": "~0.2.7"
+  },
+  "devDependencies": {
+    "electron": "~1.6.2"
   }
 }

@@ -3,5 +3,4 @@
 // All of the Node.js APIs are available in this process.
 
 window.$ = window.jQuery = require('jquery');
-require("iota.lib.js");
 require("./js/index.js");

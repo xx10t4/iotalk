@@ -1,5 +1,6 @@
 
 $(document).ready(function() {
+    const IOTA = require("iota.lib.js");
 
     //  Instantiate IOTA with provider 'http://localhost:14265'
     var iota = new IOTA({
