@@ -1,3 +1,4 @@
+
 $(document).ready(function() {
 
     //  Instantiate IOTA with provider 'http://localhost:14265'
