@@ -1,21 +1,514 @@
+$(document).ready(function () {
 
-$(document).ready(function() {
-    const IOTA = require("iota.lib.js");
-
+    var IOTA = require('iota.lib.js');
+    const Crypto = require('crypto.iota.js');
+    var ntru = require('ntru');
+    var fs = require("fs");
+    var codec = require('text-encoding');
+    var ccurlInterface = require('ccurl.interface.js')
+    const path = require("path");
     //  Instantiate IOTA with provider 'http://localhost:14265'
     var iota = new IOTA({
-        'host': 'http://iota1',
+        'host': 'http://iota1/',
         'port': 14265
     });
 
     var seed;
-    var balance = 0;
-    var addresses = [];
-    var checkedTxs = 0;
+    var localData = {accounts:[],contacts:[]};
+
+    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback) {
+
+        console.log("sendTransfers: minWeightMagnitude" + minWeightMagnitude);
+        // Validity check for number of arguments
+        if (arguments.length < 4) {
+            return callback(new Error("Invalid number of arguments"));
+        }
+
+        var ccurlPath;
+
+        var is64BitOS = process.arch == "x64";
+        if (process.platform == "win32") {
+            ccurlPath = path.join("lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+        } else if (process.platform == "darwin") {
+            ccurlPath = path.join("lib", "ccurl", "mac");
+        } else {
+            ccurlPath = path.join("lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+        }
+
+
+        iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
+            if (error) return callback(error)
+
+            iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
+                if (error) return callback(error)
+
+                ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
+                    if (error) return callback(error)
+
+                    // TODO trying to get storeAndBroadcast to work!!
+                    foo(attached, function (error, result) {
+                        if (error) return callback(error)
+                        callback(null, result);
+                    })
+
+                    iota.api.getNodeInfo(function (error, results) {
+
+                        console.log("in ccurlInterface callback: attached:" + JSON.stringify(results));
+
+                    })
+
+                })
+            })
+        })
+    }
+
+
+    function foo(trytes, callback) {
+
+        var transactions = [];
+
+        trytes.forEach(function (trx) {
+            transactions.push(iota.utils.transactionObject(trx));
+
+        })
+
+        transactions.sort(function (a, b) {
+            a.currentIndex - b.currentIndex;
+        });
+        var publicKeyTrytes = ''
+        addresses = []
+        transactions.forEach(function (transaction, idx) {
+            console.log("in foo :" + JSON.stringify(transaction))
+            publicKeyTrytes += transaction.signatureMessageFragment;
+            var address = transaction.address;
+            if (addresses.indexOf(address) < 0) {
+                addresses.push(address);
+            }
+
+        });
+        // TODO sanity check - verify that all transactions were to the same address
+        // error if addresses.length != 1
+
+        // kluge to make sure it's an even # of chars for fromTrytes
+        if (publicKeyTrytes.length % 2 > 0) {
+            publicKeyTrytes += '9'
+        }
+        var publicKey = iota.utils.fromTrytes(publicKeyTrytes);
+        console.log("publicKey " + publicKey)
+
+
+
+
+        iota.api.storeAndBroadcast(trytes, function (error1, success1) {
+            if (error1) return callback(error1);
+            console.log("storeAndBroadcast callback success:" + JSON.stringify(success1))
+
+            var finalTxs = [];
+
+            trytes.forEach(function (trx) {
+                finalTxs.push(iota.utils.transactionObject(trx));
+            })
+            return callback(null, finalTxs);
+        })
+    }
+
+
+
+
+    var getPublicKey = function(tag, callback) {
+        console.log("getPublicKey tag: "+tag)
+        
+        iota.api.findTransactions({ tags: [tag] }, function (error, result) {
+            if (error) {
+                return callback(error);
+            } else if (result.length == 0) {
+                // handle empty results
+                return callback("no results in findTransactions callback for tag "+ tag);
+            } else {
+                iota.api.getTrytes(result, function (error, trytes) {
+                    if (error) {
+                        debug("error in getTrytes callback: ", error);
+                    } else {
+                        //console.log("getTrytescallback: trytes: " + trytes)
+                        var transactions = trytes.map(function (transactionTrytes) {
+                            return iota.utils.transactionObject(transactionTrytes);
+                        });
+                        var max_index = Math.max.apply(Math, transactions.map(function (transaction, idx) {
+                            return parseInt(transaction.currentIndex);
+                        }));
+                        if (transactions.length - max_index > 1) {
+                            // we likely have a replayed bundle, need to remove duplicates (transactions with the same currentIndex)
+                            keep = []
+                            transactions.forEach(function (transaction, idx) {
+                                var seen = keep[transaction.currentIndex];
+                                if (!seen) {
+                                    keep[transaction.currentIndex] = transaction;
+                                } else if (seen.message != transaction.message) {
+                                    // DO we need to validate duplicates and error if they are different?
+                                }
+                            });
+                            transactions = keep;
+                        }
+                        transactionsSorted = transactions.sort(function (a, b) {
+                            return a.currentIndex - b.currentIndex
+                        });
+                        var publicKeyTrytes = ''
+                        addresses = []
+                        transactionsSorted.forEach(function (transaction, idx) {
+                            publicKeyTrytes += transaction.signatureMessageFragment;
+                            var address = transaction.address;
+                            if (addresses.indexOf(address) < 0) {
+                                addresses.push(address);
+                            }
+
+                        });
+                        // TODO sanity check - verify that all transactions were to the same address
+                        // error if addresses.length != 1
+
+                        // kluge to make sure it's an even # of chars for fromTrytes
+                        if (publicKeyTrytes.length % 2 > 0) {
+                            publicKeyTrytes += '9'
+                        }
+                        var decodedStr = iota.utils.fromTrytes(publicKeyTrytes);
+                        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
+                        // TODO validate JSON
+                        publicKey = JSON.parse(jsonStr)
+                        publicKey.address = addresses[0]
+                        if (validatePublicKey(publicKey.publicKey, publicKey.fingerprint)) {
+                            return callback(null, publicKey);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    function getKeyUsername(publicKey) {
+        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
+    }
+
+    function debug(msg, object = '') {
+        var html = $("#debug").html() + '<br />' + msg;
+        if (object != '') {
+            html += JSON.stringify(object);
+        }
+        $("#debug").html(html);
+    }
+
+    function createKeyPair() {
+        return ntru.keyPair();
+    }
+
+    function encryptMessage(message, publicKey = '') {
+        message = 'this is a longer !@#$%^&*()_+-=[]{}|\ message'
+        if (publicKey == '') {
+            fs.readFile('keys/ntru1.pub', { encoding: 'utf-8' }, (err, fileString) => {
+                if (err) throw err;
+                publicKey = new Uint8Array(fileString.split(','))
+                var encoder = new codec.TextEncoder();
+                var encodedMessage = encoder.encode(message);
+                var encryptedMessage = ntru.encrypt(encodedMessage, publicKey);
+
+                fs.readFile('keys/ntru1.prv', { encoding: 'utf-8' }, (err, fileString) => {
+                    if (err) throw err;
+                    var privateKey = new Uint8Array(fileString.split(','))
+                    var decryptedMessage = ntru.decrypt(encryptedMessage, privateKey);
+                    var decoder = new codec.TextDecoder();
+                    var testMessage = decoder.decode(decryptedMessage);
+                });
+
+
+            });
+
+        }
+    }
+
+
+    function createAccount(name) {
+        console.log("creatAddress with name: " + name)
+        iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
+            if (error) {
+                console.log(error);
+            } else {
+                if (addresses.length != 1) {
+                    console.log("no addresses found!");
+                    return;
+                }
+                var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
+                var minWeightMagnitude = 15;
+                var tangleDepth = 4;
+                var address = addresses[0];
+                var newKeyPair = createKeyPair();
+                var privateKey = newKeyPair.privateKey.toString();
+                var publicKey = newKeyPair.publicKey.toString();
+                var username = getKeyUsername({ name: name, publicKey: publicKey });
+
+                account = {
+                    privateKey: privateKey,
+                    publicKey: publicKey,
+                    name: name,
+                    address: address
+                }
+                if (!localData.accounts) {
+                    localData.accounts = [];
+                }
+                localData.accounts.push(account);
+                var publicKeyMessage = {
+                    publicKey: publicKey,
+                    fingerprint: createPublicKeyFinderprint(publicKey),
+                    name: name,
+                }
+                
+                var transfer = [{
+                    'address': address,
+                    'value': parseInt(value),
+                    'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
+                    'tag': getPublicKeyTag(publicKeyMessage.publicKey)
+                }]
+            
+                sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendTransferResultsHandler)
+                $("#submit").toggleClass("disabled");
+                showWaiting("Creating account... this may take a few minutes.");                
+                saveLocalData();
+            }
+        })
+    }
+
+    var addContact = function(error, publicKey){
+        console.log("addContact publicKey: "+publicKey)
+        if (!localData.contacts) {
+            localData.contacts = [];
+        }
+        localData.contacts.push(publicKey);
+        saveLocalData();
+    }
+
+    var sendTransferResultsHandler = function(error, results) {
+
+        showMessenger();
+
+        if (error) {
+
+            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
+            $("#send__success").html(JSON.stringify(error));
+
+            $("#submit").toggleClass("disabled");
+
+            $("#send__waiting").css("display", "none");
+
+        } else {
+
+            debug("sendTransfer results " + results);
+            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
+            $("#send__success").html(html);
+
+        }
+    }
+
+
+    function saveLocalData() {
+        var localDataJson = JSON.stringify(localData);
+        fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
+            if (err) {
+                return console.log(err);
+            }
+            showAccountsList();
+            showContactsList();
+        });
+    }
+
+    function loadLocalData() {
+        var fileName = getLocalDataFileName();
+        if (fs.existsSync(fileName)) {
+            fs.readFile(fileName, function (err, contents) {
+                if (err) {
+                    return console.log(err);
+                }
+                localData = JSON.parse(contents);
+                if (localData && localData.accounts) {
+                    localData.accounts.forEach(function (account) {
+                        getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
+                            console.log("getPublicKey callback account "+ account);
+                            showAccountVerified(account)
+                        });
+                    });
+                }
+                showAccountsList();
+                showContactsList();
+            });
+        }
+    }
+
+    function getLocalDataFileName() {
+        return window.appRoot + "/data/" + seed.substr(0, 6) + ".json"
+    }
+
+    //
+    //  Makes a new transaction
+    //  Includes message and optional tag and value
+    //
+    function sendMessage(address, message, tag = '', value = 0) {
+
+        try {
+
+            var transfer = [{
+                'address': address,
+                'value': parseInt(value),
+                'message': iota.utils.toTrytes(message),
+                'tag': tag
+            }]
+
+            // We send the transfer from this seed, with depth 4 and minWeightMagnitude 18
+            sendTransfers(transfer, 4, 15, function (error, results) {
+                showMessenger();
+                debug("sendTransfer error " + error);
+                debug("WTF results " + results);
+
+                if (error) {
+
+                    var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
+                    $("#send__success").html(JSON.stringify(error));
+
+                    $("#submit").toggleClass("disabled");
+
+                    $("#send__waiting").css("display", "none");
+
+                } else {
+
+                    debug("sendTransfer results " + results);
+                    var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
+                    $("#send__success").html(html);
+
+
+
+                }
+            })
+            $("#submit").toggleClass("disabled");
+            showWaiting("Sending message. This may take a few minutes.");
+        } catch (e) {
+
+            console.log(e);
+            var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Wrong Format!</strong> Your message contains an illegal character. Make sure you only enter valid ASCII characters.</div>'
+            $("#send__success").html(html);
+
+        }
+
+    }
+
+    function sendTransactionTrytes(trytes) {
+        // Broadcast and store tx
+        iota.api.broadcastAndStore([trytes], function (error, success) {
+
+            if (error) {
+                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(error)));
+            } else {
+                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(trytes)));
+            }
+        })
+    }
+
+    function retrieveAddressTransactions(address) {
+
+        var params = { "addresses": [address] }
+        // Broadcast and store tx
+        iota.api.findTransactionObjects(params, function (error, success) {
+
+            if (error) {
+                $("#send__success").html(JSON.stringify(error));
+            } else {
+                console.log("success", success)
+                var messageFromTrytes = iota.utils.fromTrytes(success[0]["signatureMessageFragment"]);
+                messageObject = JSON.parse(messageFromTrytes)
+
+
+                var results = JSON.stringify(success);
+                var results = JSON.stringify(success);
+                console.log("messageObject", messageObject)
+                console.log("results", results)
+                $("#send__success").html(results);
+            }
+        })
+    }
+
+    /*
+    The first 27 trytes of a public key fingerprint. Intended for use as a tangle transaction tag to make searching for the tag easy.
+    */
+    function getPublicKeyTag(publicKey) {
+        return createPublicKeyFinderprint(publicKey).substr(0, 27);
+    }
+
+    /*
+    Creates a 81 tryte hash of a public key. Intended for use as a fingerprint of the public key
+    */
+    function createPublicKeyFinderprint(publicKey) {
+        const curl = new Crypto.curl();
+        const hash = new Int8Array(243); //81 trytes TODO determine if this is long enough to be a secure fingerprint
+        const messageTrits = Crypto.converter.trits(iota.utils.toTrytes(publicKey.toString()));
+        curl.initialize();
+        curl.absorb(messageTrits, 0, messageTrits.length);
+        curl.squeeze(hash, 0, hash.length);
+        var fingerprint = Crypto.converter.trytes(hash).toString();
+        return fingerprint;
+    }
+
+    /*
+    Returns boolean about whether the given fingerprint matches the given publicKey
+    */
+    function validatePublicKey(publicKey, fingerprint) {
+        return createPublicKeyFinderprint(publicKey) === fingerprint
+    }
+
+
+// UI functions
+
+    function showMessenger() {
+        $(".login_section").addClass("hidden");
+        $(".messenger_section").removeClass("hidden");
+        $(".waiting_section").addClass("hidden");
+        loadLocalData();
+    }
+
+    function showAccountsList() {
+        if (localData.accounts && localData.accounts.length > 0) {
+            $('#accountsList').empty()
+            localData.accounts.forEach(function (account) {
+                $('#accountsList').append('<li id="'+getPublicKeyTag(account.publicKey)+'">' + getKeyUsername(account) + '</li>')
+            });
+        }
+    }
+
+    function showAccountVerified(verifiedAccount) {
+        console.log("showAccountVerified")
+        if (localData.accounts && localData.accounts.length > 0) {
+            localData.accounts.forEach(function (account) {        
+                if(verifiedAccount.publicKey === account.publicKey ){
+                    console.log("getPublicKeyTag(account.publicKey)"+getPublicKeyTag(account.publicKey))
+                  
+                    $('#'+getPublicKeyTag(account.publicKey)).addClass("verified")
+                }
+            });
+        }
+    }
+
+    function showContactsList() {
+        if (localData.contacts && localData.contacts.length > 0) {
+            $('#contactsList').empty()
+            localData.contacts.forEach(function (contact) {
+                $('#contactsList').append('<li class="verified">' + getKeyUsername(contact) + '</li>')
+            });
+        }
+    }
+
+    function showWaiting(message) {
+        $(".login_section").addClass("hidden");
+        $(".messenger_section").addClass("hidden");
+        $(".waiting_section").removeClass("hidden");
+        $("#waiting_message").html(message);
+    }
 
     function showLogin(message = "") {
         $("#login-message").html(message);
-        if( message = ""){
+        if (message = "") {
             $("#login-message").addClass("hidden");
         } else {
             $("#login-message").removeClass("hidden");
@@ -23,28 +516,15 @@ $(document).ready(function() {
         $(".login_section").removeClass("hidden");
         $(".messenger_section").addClass("hidden");
         $(".waiting_section").addClass("hidden");
-       
+
     }
 
-    function showMessenger() {
-        $(".login_section").addClass("hidden");
-        $(".messenger_section").removeClass("hidden");
-        $(".waiting_section").addClass("hidden");
-    }
-
-    function showWaiting(message) {
-        $(".login_section").addClass("hidden");
-        $(".messenger_section").addClass("hidden");
-        $(".waiting_section").removeClass("hidden");
-        $("#waiting-message").html(message);
-    }
-
-    function validateSeed(value){
-        var result = {"valid": true, "message": ""}
-        if(!value || value == ""){
+    function validateSeed(value) {
+        var result = { "valid": true, "message": "" }
+        if (!value || value == "") {
             result["message"] = "Seed cannot be blank"
         }
-        if(result["message"] != "") {
+        if (result["message"] != "") {
             result["valid"] = false;
         }
         return result;
@@ -67,256 +547,59 @@ $(document).ready(function() {
         }
     }
 
-    //
-    //  Gets the addresses and transactions of an account
-    //  As well as the current balance
-    //  Automatically updates the HTML on the site
-    //
-    function getAccountInfo() {
-
-        console.log("fetching account data...");
-
-        // Command to be sent to the IOTA Node
-        // Gets the latest transfers for the specified seed
-        iota.api.getAccountData(seed, function(e, accountData) {
-
-            if(e){
-                showLogin(e);
-                return;
-            }
-
-            if(!accountData){
-                showLogin("Account not found");
-                return;
-            }
-
-            console.log("Account data", accountData);
-
-            addresses = []
-             
-            // Update address in case it's not defined yet
-            accountData.addresses.forEach(function(addr) {
-
-                addresses.push(iota.utils.addChecksum(addr));
-
-            })
-
-            var transferList = [];
-
-            //  Go through all transfers to determine if the tx contains a message
-            //  Only valid JSON data is accepted
-            if (accountData.transfers.length > checkedTxs) {
-
-                console.log("RECEIVED NEW TXS");
-
-                accountData.transfers.forEach(function(transfer) {
-
-                    try {
-
-                        var message = iota.utils.extractJson(transfer);
-                        console.log("Extracted JSON from Transaction: ", message);
-
-                        message = JSON.parse(message);
-                        console.log("JSON: ", message);
-
-                        var newTx = {
-                            'name': message.name,
-                            'message': message.message,
-                            'value': transfer[0].value
-                        }
-                        transferList.push(newTx);
-
-                    } catch(e) {
-                        console.log("Transaction did not contain any JSON Data");
-                    }
-                })
-
-                checkedTxs = accountData.transfers.length;
-            }
-
- 
-            balance = accountData.balance;
-            showMessenger();
-        })
-    }
-
-
-    function createAndSendMessage(toAddress, toName, message, value) {
-
- 
-        if (value > balance) {
-            var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Value too high!</strong> You have specified a too high value.</div>'
-            $("#send__success").html(html);
-            return
-        }
-
-        // the message which we will send with the transaction
-        var messageJson = {
-            'name': toName,
-            'message': message
-        }
-
-        // Convert the user message into trytes
-        // In case the user supplied non-ASCII characters we throw an error
-        try {
-            console.log("Sending Message: ", messageJson);
-            var jsonString = JSON.stringify(messageJson) 
-            console.log("jsonString: ", jsonString);
-            var messageTrytes = iota.utils.toTrytes(jsonString);
-            console.log("Converted Message into trytes: ", messageTrytes);
-            // We display the loading screen
-            $("#send__waiting").css("display", "block");
-            $("#submit").toggleClass("disabled");
-            // If there was any previous error message, we remove it
-            $("#send__success").html();
-
-            // call send transfer
-            sendTransfer(toAddress, value, messageTrytes);
-
-        } catch (e) {
-
-            console.log(e);
-            var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Wrong Format!</strong> Your message contains an illegal character. Make sure you only enter valid ASCII characters.</div>'
-            $("#send__success").html(html);
-
-        }
-    }
-
-
-    //
-    //  Makes a new transfer for the specified seed
-    //  Includes message and value
-    //
-    function sendTransfer(address, value, messageTrytes) {
-
-        var transfer = [{
-            'address': address,
-            'value': parseInt(value),
-            'message': messageTrytes
-        }]
-
-        console.log("Sending Transfer", transfer);
-
-        // We send the transfer from this seed, with depth 4 and minWeightMagnitude 18
-        iota.api.sendTransfer(seed, 4, 18, transfer, function(e) {
-
-            if (e){
-
-                var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + e + '.</div>'
-                $("#send__success").html(JSON.stringify(e));
-
-                $("#submit").toggleClass("disabled");
-
-                $("#send__waiting").css("display", "none");
-
-            } else {
-
-                var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sent your transaction. If you want to make another one make sure that this transaction is confirmed first (check in your client).</div>'
-                $("#send__success").html(html);
-
-                $("#submit").toggleClass("disabled");
-
-                $("#send__waiting").css("display", "none");
-
-                balance = balance - value;
-                updateBalanceHTML(balance);
-            }
-        })
-    }
-
-
-    function sendTransactionTrytes(trytes) {        
-        // Broadcast and store tx
-        iota.api.broadcastAndStore([trytes], function(error, success) {
-
-            if (error) {
-                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(error)));
-            } else {
-                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(trytes)));
-            }
-        })
-    }
-
-    function retrieveAddressTransactions(address) {
-
-        var params = {"addresses":[address]}
-        // Broadcast and store tx
-        iota.api.findTransactionObjects(params, function(error, success) {
-
-            if (error) {
-                $("#send__success").html(JSON.stringify(error));
-            } else {
-                console.log("success", success)
-                var messageFromTrytes = iota.utils.fromTrytes(success[0]["signatureMessageFragment"]);
-                messageObject = JSON.parse(messageFromTrytes)
-
-
-                var results = JSON.stringify(success);
-                var results = JSON.stringify(success);
-                console.log("messageObject", messageObject)
-                console.log("results", results)
-                $("#send__success").html(results);
-            }
-        })
-    }
 
 
     //
     // Set seed
     //
-    $("#login").on("click", function() {
+    $("#login").on("click", function () {
 
- 
-        var seed_ = $("#userSeed").val();    
+
+        var seed_ = $("#userSeed").val();
 
         var check = validateSeed(seed_);
-        console.log("check", check); 
-        if(!check["valid"]) {
+        if (!check["valid"]) {
             showLogin(check["message"]);
             return;
         }
         $("#login-message").addClass("hidden");
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
- 
-        // We fetch the latest transactions every 90 seconds
-        getAccountInfo();
-        //setInterval(getAccountInfo, 90000);
-        showWaiting("Retrieving account info. This may take a few minutes.");                     
+        showMessenger();
     });
 
     //
-    $("#submit_transaction").on("click", function() {
+    $("#submit_transaction").on("click", function () {
 
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         var transaction = $("#transaction").val();
 
- 
+
         // We fetch the latest transactions every 90 seconds
         sendTransactionTrytes(transaction);
     });
 
-    $("#submit_receive_address").on("click", function() {
+    $("#submit_receive_address").on("click", function () {
 
         var address = $("#address").val();
         retrieveAddressTransactions(address);
     });
 
+    $("#create_key_pair").on("click", function () {
+        //createKeyPair();
+        encryptMessage('joe', '');
+    });
 
+    $("#add_contact").on("click", function () {
+        var address = $("#contact_address").val();
+        var tag = address.split('@')[1];
+        $("#contact_address").val('');
+        // the http request hangs unless this method is called more than once, so workaround is to just call it twice. WTF!!
+        getPublicKey(tag, addContact);
+        getPublicKey(tag, addContact);
+    });
 
-
-    
-
-     $("#submit").on("click", function() {
-
-        setSeed($("#userSeed").val());
-
-        // Then we remove the input
-        $("#enterSeed").html('<div class="alert alert-success" role="alert">Successfully saved your seed. You can generate an address now.</div>');
-
-        // We fetch the latest transactions every 90 seconds
-        getAccountInfo();
-        setInterval(getAccountInfo, 90000);
+    $("#create_account").on("click", function () {
 
         if (!seed) {
             var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>No Seed!</strong> You have not entered your seed yet. Do so on the Menu on the right.</div>'
@@ -324,25 +607,15 @@ $(document).ready(function() {
             return
         }
 
-        //if (!balance || balance === 0) {
-       //     var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>No Tokens!</strong> You do not have enough IOTA tokens. Make sure you have enough confirmed tokens.</div>'
-       //    $("#send__success").html(html);
-        //    return
-        //}
-        seed = $("#userSeed").val();
         var name = $("#name").val();
-        var value = parseInt($("#value").val());
-        var address = $("#address").val();
-        var message = $("#message").val();
-         console.log("creating message", message);
-        createAndSendMessage(address,name,message,value)      
+        $("#name").val('');
+        createAccount(name)
     })
- 
- 
+
     //
     // Generate a new address
     //
-    $("#genAddress").on("click", function() {
+    $("#genAddress").on("click", function () {
 
         if (!seed) {
             console.log("You did not enter your seed yet");
@@ -350,7 +623,7 @@ $(document).ready(function() {
         }
 
         // Deterministically generates a new address for the specified seed with a checksum
-        iota.api.getNewAddress( seed, { 'checksum': true }, function( e, address ) {
+        iota.api.getNewAddress(seed, { 'checksum': true }, function (e, address) {
 
             if (!e) {
 

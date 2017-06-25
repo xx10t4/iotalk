@@ -61,6 +61,11 @@ main {
   margin: 10px auto;  
 }
 
+#accountsList .verified {
+  font-weight: bold;
+  color: #006600;
+
+}
 
 .middle {
   margin: 0 auto;
