@@ -172,7 +172,11 @@ $(document).ready(function () {
                         var decodedStr = iota.utils.fromTrytes(publicKeyTrytes);
                         var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
                         // TODO validate JSON
-                        publicKey = JSON.parse(jsonStr)
+                        try {
+                            publicKey = JSON.parse(jsonStr)
+                        } catch(error) {
+                            return callback(error)
+                        }
                         publicKey.address = addresses[0]
                         if (validatePublicKey(publicKey.publicKey, publicKey.fingerprint)) {
                             return callback(null, publicKey);
@@ -279,8 +283,18 @@ $(document).ready(function () {
         if (!localData.contacts) {
             localData.contacts = [];
         }
-        localData.contacts.push(publicKey);
-        saveLocalData();
+        var exists = false;
+        for(var i = 0; i < localData.contacts.length ; i++){
+            if(localData.contacts[0].publicKey === publicKey.publicKey){
+                exists = true;
+                break;
+            }
+        }
+        if(!exists){
+            localData.contacts.push(publicKey);
+        }       
+        saveLocalData(true);
+
     }
 
     var sendTransferResultsHandler = function(error, results) {
@@ -306,18 +320,18 @@ $(document).ready(function () {
     }
 
 
-    function saveLocalData() {
+    function saveLocalData(refreshKeys=false) {
         var localDataJson = JSON.stringify(localData);
         fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
             if (err) {
                 return console.log(err);
             }
-            showAccountsList();
-            showContactsList();
+            showAccountsList(refreshKeys);
+            showContactsList(refreshKeys);
         });
     }
 
-    function loadLocalData() {
+    function loadLocalData(refreshKeys=false) {
         var fileName = getLocalDataFileName();
         if (fs.existsSync(fileName)) {
             fs.readFile(fileName, function (err, contents) {
@@ -325,16 +339,8 @@ $(document).ready(function () {
                     return console.log(err);
                 }
                 localData = JSON.parse(contents);
-                if (localData && localData.accounts) {
-                    localData.accounts.forEach(function (account) {
-                        getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
-                            console.log("getPublicKey callback account "+ account);
-                            showAccountVerified(account)
-                        });
-                    });
-                }
-                showAccountsList();
-                showContactsList();
+                showAccountsList(refreshKeys);
+                showContactsList(refreshKeys);
             });
         }
     }
@@ -465,37 +471,82 @@ $(document).ready(function () {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
-        loadLocalData();
+        loadLocalData(true);
     }
 
-    function showAccountsList() {
+    var showAccountsList = function (refreshKeys=false) {
         if (localData.accounts && localData.accounts.length > 0) {
             $('#accountsList').empty()
             localData.accounts.forEach(function (account) {
                 $('#accountsList').append('<li id="'+getPublicKeyTag(account.publicKey)+'">' + getKeyUsername(account) + '</li>')
             });
+            if(refreshKeys){              
+                localData.accounts.forEach(function (account) {
+                    
+                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
+                        if(error) {
+                            console.log("error getting publicKey key for "+ account);
+                            console.log(error);
+                        } else {
+                            showAccountVerified(account)
+                        }
+                    });
+                });
+                if(localData.accounts.length == 1) {
+                    var account = localData.accounts[0]
+                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
+                        if(error) {
+                            console.log("error getting publicKey key for "+ account);
+                            console.log(error);
+                        } else {
+                            showAccountVerified(account)
+                        }
+                    });
+                }          
+            }
         }
     }
 
-    function showAccountVerified(verifiedAccount) {
+    function showAccountVerified(verifiedAccount, type='accounts') {
         console.log("showAccountVerified")
-        if (localData.accounts && localData.accounts.length > 0) {
-            localData.accounts.forEach(function (account) {        
+        if (localData[type] && localData[type].length > 0) {
+            localData[type].forEach(function (account) {        
                 if(verifiedAccount.publicKey === account.publicKey ){
-                    console.log("getPublicKeyTag(account.publicKey)"+getPublicKeyTag(account.publicKey))
-                  
                     $('#'+getPublicKeyTag(account.publicKey)).addClass("verified")
                 }
             });
         }
     }
 
-    function showContactsList() {
-        if (localData.contacts && localData.contacts.length > 0) {
+    function showContactsList(refreshKeys=false) {
+        if(localData.contacts && localData.contacts.length > 0) {
             $('#contactsList').empty()
             localData.contacts.forEach(function (contact) {
-                $('#contactsList').append('<li class="verified">' + getKeyUsername(contact) + '</li>')
+                $('#contactsList').append('<li id="'+getPublicKeyTag(contact.publicKey)+'">' + getKeyUsername(contact) + '</li>')
             });
+            if(refreshKeys){              
+                localData.contacts.forEach(function (account) {
+                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
+                        if(error) {
+                            console.log("error getting publicKey key for "+ account);
+                            console.log(error);
+                        } else {
+                            showAccountVerified(account, "contacts")
+                        }
+                    });
+                });
+                if(localData.contacts.length == 1) {
+                    var account = localData.contacts[0]
+                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
+                        if(error) {
+                            console.log("error getting publicKey key for "+ account);
+                            console.log(error);
+                        } else {
+                            showAccountVerified(account, "contacts")
+                        }
+                    });
+                }          
+            }
         }
     }
 
