@@ -35,24 +35,28 @@
 
         <section class="messenger_section hidden">
             <div class="row">
-                <h3>Create account</h3>
-                <div class="col-xs-12">
-                    <div class="form-group">
-                        <label for="name">Choose Username</label>
-                        <input type="text" maxlength="16" class="form-control" id="name" placeholder="">
-                        <div class="send__button">
-                            <button class="btn btn-success btn-lg" id="create_account">Submit</button>
-                        </div>
-                    </div>
-                </div>
                 <h3>Accounts</h3>
                 <div class="col-xs-12">
                     <ul id="accountsList">
                         <li>No accounts set up. Use <b>Create Account</b> to set up an account.</li>
                     </ul>
                 </div>
+                <div class="col-xs-12">
+                    <div class="form-group">
+                        <label for="name">Create Account</label>
+                        <input type="text" class="form-control" id="name" placeholder="">
+                        <div class="send__button">
+                            <button class="btn btn-success btn-lg" id="create_account">Submit</button>
+                        </div>
+                    </div>
+                </div>
                 <hr />
-                <h3>Add Contact</h3>
+                <h3>Contacts</h3>
+                <div class="col-xs-12">
+                    <ul id="contactsList">
+                        <li>No contacts set up. Use <b>Add Contact</b> to search for contacts.</li>
+                    </ul>
+                </div>
                 <div class="col-xs-12">
                     <div class="form-group">
                         <label for="name">Address</label>
@@ -62,13 +66,7 @@
                         </div>
                     </div>
                 </div>
-                <h3>Contacts</h3>
-                <div class="col-xs-12">
-                    <ul id="contactsList">
-                        <li>No contacts set up. Use <b>Add Contact</b> to search for contacts.</li>
-                    </ul>
-                </div>
-               
+              
                 <hr />
 
                 <div id="debug"></div>
