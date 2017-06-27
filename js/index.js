@@ -18,7 +18,6 @@ $(document).ready(function () {
 
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback) {
 
-        console.log("sendTransfers: minWeightMagnitude" + minWeightMagnitude);
         // Validity check for number of arguments
         if (arguments.length < 4) {
             return callback(new Error("Invalid number of arguments"));
@@ -35,7 +34,6 @@ $(document).ready(function () {
             ccurlPath = path.join("lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
         }
 
-
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
             if (error) return callback(error)
 
@@ -45,75 +43,19 @@ $(document).ready(function () {
                 ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
                     if (error) return callback(error)
 
-                    // TODO trying to get storeAndBroadcast to work!!
-                    foo(attached, function (error, result) {
-                        if (error) return callback(error)
-                        callback(null, result);
+                    iota.api.storeTransactions(attached, function (error, success) {
+                        if (error) return callback(error);
                     })
-
-                    iota.api.getNodeInfo(function (error, results) {
-
-                        console.log("in ccurlInterface callback: attached:" + JSON.stringify(results));
-
+                    iota.api.broadcastTransactions(attached, function (error, success) {
+                        if (error) return callback(error);
+                        return callback(null, success)
                     })
+                    iota.api.getNodeInfo(function (error, results) {})
 
                 })
             })
         })
     }
-
-
-    function foo(trytes, callback) {
-
-        var transactions = [];
-
-        trytes.forEach(function (trx) {
-            transactions.push(iota.utils.transactionObject(trx));
-
-        })
-
-        transactions.sort(function (a, b) {
-            a.currentIndex - b.currentIndex;
-        });
-        var publicKeyTrytes = ''
-        addresses = []
-        transactions.forEach(function (transaction, idx) {
-            console.log("in foo :" + JSON.stringify(transaction))
-            publicKeyTrytes += transaction.signatureMessageFragment;
-            var address = transaction.address;
-            if (addresses.indexOf(address) < 0) {
-                addresses.push(address);
-            }
-
-        });
-        // TODO sanity check - verify that all transactions were to the same address
-        // error if addresses.length != 1
-
-        // kluge to make sure it's an even # of chars for fromTrytes
-        if (publicKeyTrytes.length % 2 > 0) {
-            publicKeyTrytes += '9'
-        }
-        var publicKey = iota.utils.fromTrytes(publicKeyTrytes);
-        console.log("publicKey " + publicKey)
-
-
-
-
-        iota.api.storeAndBroadcast(trytes, function (error1, success1) {
-            if (error1) return callback(error1);
-            console.log("storeAndBroadcast callback success:" + JSON.stringify(success1))
-
-            var finalTxs = [];
-
-            trytes.forEach(function (trx) {
-                finalTxs.push(iota.utils.transactionObject(trx));
-            })
-            return callback(null, finalTxs);
-        })
-    }
-
-
-
 
     var getPublicKey = function(tag, callback) {
         console.log("getPublicKey tag: "+tag)
@@ -203,28 +145,11 @@ $(document).ready(function () {
         return ntru.keyPair();
     }
 
-    function encryptMessage(message, publicKey = '') {
-        message = 'this is a longer !@#$%^&*()_+-=[]{}|\ message'
-        if (publicKey == '') {
-            fs.readFile('keys/ntru1.pub', { encoding: 'utf-8' }, (err, fileString) => {
-                if (err) throw err;
-                publicKey = new Uint8Array(fileString.split(','))
-                var encoder = new codec.TextEncoder();
-                var encodedMessage = encoder.encode(message);
-                var encryptedMessage = ntru.encrypt(encodedMessage, publicKey);
-
-                fs.readFile('keys/ntru1.prv', { encoding: 'utf-8' }, (err, fileString) => {
-                    if (err) throw err;
-                    var privateKey = new Uint8Array(fileString.split(','))
-                    var decryptedMessage = ntru.decrypt(encryptedMessage, privateKey);
-                    var decoder = new codec.TextDecoder();
-                    var testMessage = decoder.decode(decryptedMessage);
-                });
-
-
-            });
-
-        }
+    function encryptMessage(message, publicKey) {
+        publicKey = new Uint8Array(publicKey.split(','))
+        var encoder = new codec.TextEncoder();
+        var encodedMessage = encoder.encode(message);
+        return ntru.encrypt(encodedMessage, publicKey);
     }
 
 
@@ -312,7 +237,6 @@ $(document).ready(function () {
 
         } else {
 
-            debug("sendTransfer results " + results);
             var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
             $("#send__success").html(html);
 
@@ -617,17 +541,6 @@ $(document).ready(function () {
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
         showMessenger();
-    });
-
-    //
-    $("#submit_transaction").on("click", function () {
-
-        // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
-        var transaction = $("#transaction").val();
-
-
-        // We fetch the latest transactions every 90 seconds
-        sendTransactionTrytes(transaction);
     });
 
     $("#submit_receive_address").on("click", function () {
