@@ -58,8 +58,6 @@ $(document).ready(function () {
     }
 
     var getPublicKey = function(tag, callback) {
-        console.log("getPublicKey tag: "+tag)
-        
         iota.api.findTransactions({ tags: [tag] }, function (error, result) {
             if (error) {
                 return callback(error);
@@ -69,7 +67,7 @@ $(document).ready(function () {
             } else {
                 iota.api.getTrytes(result, function (error, trytes) {
                     if (error) {
-                        debug("error in getTrytes callback: ", error);
+                        return callback(error);
                     } else {
                         //console.log("getTrytescallback: trytes: " + trytes)
                         var transactions = trytes.map(function (transactionTrytes) {
@@ -127,31 +125,44 @@ $(document).ready(function () {
                 });
             }
         });
+        iota.api.getNodeInfo(function (error, results) {})
     }
 
     function getKeyUsername(publicKey) {
         return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
     }
 
-    function debug(msg, object = '') {
-        var html = $("#debug").html() + '<br />' + msg;
-        if (object != '') {
-            html += JSON.stringify(object);
-        }
-        $("#debug").html(html);
-    }
-
-    function createKeyPair() {
-        return ntru.keyPair();
-    }
-
-    function encryptMessage(message, publicKey) {
+    var encryptMessage = function(message, publicKey) {
         publicKey = new Uint8Array(publicKey.split(','))
         var encoder = new codec.TextEncoder();
         var encodedMessage = encoder.encode(message);
         return ntru.encrypt(encodedMessage, publicKey);
     }
 
+    var decryptMessage = function(cipherText, privateKey) {
+        privateKey = new Uint8Array(privateKey.split(','))
+        var encodedMessage = ntru.decrypt(cipherText, privateKey);
+        var decoder = new codec.TextDecoder();
+        return decoder.decode(encodedMessage);
+    }
+
+    var sendMessage = function(toContact, fromAccount, message) {
+
+        fromAccount = getAccount('FUPBHEBJNVNUVABVFANYKPERGBO')
+        console.log("from "+fromAccount.name)
+
+        toContact = fromAccount
+        console.log("to "+toContact.name)
+
+        console.log("message "+message)
+        var encrypted = encryptMessage(message, toContact.publicKey)
+        console.log("encrypted "+encrypted)
+
+        var decrypted = decryptMessage(encrypted, fromAccount.privateKey)
+        console.log("decrypted "+decrypted)
+
+
+    }
 
     function createAccount(name) {
         console.log("creatAddress with name: " + name)
@@ -203,47 +214,6 @@ $(document).ready(function () {
         })
     }
 
-    var addContact = function(error, publicKey){
-        console.log("addContact publicKey: "+publicKey)
-        if (!localData.contacts) {
-            localData.contacts = [];
-        }
-        var exists = false;
-        for(var i = 0; i < localData.contacts.length ; i++){
-            if(localData.contacts[0].publicKey === publicKey.publicKey){
-                exists = true;
-                break;
-            }
-        }
-        if(!exists){
-            localData.contacts.push(publicKey);
-        }       
-        saveLocalData(true);
-
-    }
-
-    var sendTransferResultsHandler = function(error, results) {
-
-        showMessenger();
-
-        if (error) {
-
-            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
-            $("#send__success").html(JSON.stringify(error));
-
-            $("#submit").toggleClass("disabled");
-
-            $("#send__waiting").css("display", "none");
-
-        } else {
-
-            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
-            $("#send__success").html(html);
-
-        }
-    }
-
-
     function saveLocalData(refreshKeys=false) {
         var localDataJson = JSON.stringify(localData);
         fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
@@ -269,74 +239,6 @@ $(document).ready(function () {
         }
     }
 
-    function getLocalDataFileName() {
-        return window.appRoot + "/data/" + seed.substr(0, 6) + ".json"
-    }
-
-    //
-    //  Makes a new transaction
-    //  Includes message and optional tag and value
-    //
-    function sendMessage(address, message, tag = '', value = 0) {
-
-        try {
-
-            var transfer = [{
-                'address': address,
-                'value': parseInt(value),
-                'message': iota.utils.toTrytes(message),
-                'tag': tag
-            }]
-
-            // We send the transfer from this seed, with depth 4 and minWeightMagnitude 18
-            sendTransfers(transfer, 4, 15, function (error, results) {
-                showMessenger();
-                debug("sendTransfer error " + error);
-                debug("WTF results " + results);
-
-                if (error) {
-
-                    var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
-                    $("#send__success").html(JSON.stringify(error));
-
-                    $("#submit").toggleClass("disabled");
-
-                    $("#send__waiting").css("display", "none");
-
-                } else {
-
-                    debug("sendTransfer results " + results);
-                    var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
-                    $("#send__success").html(html);
-
-
-
-                }
-            })
-            $("#submit").toggleClass("disabled");
-            showWaiting("Sending message. This may take a few minutes.");
-        } catch (e) {
-
-            console.log(e);
-            var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Wrong Format!</strong> Your message contains an illegal character. Make sure you only enter valid ASCII characters.</div>'
-            $("#send__success").html(html);
-
-        }
-
-    }
-
-    function sendTransactionTrytes(trytes) {
-        // Broadcast and store tx
-        iota.api.broadcastAndStore([trytes], function (error, success) {
-
-            if (error) {
-                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(error)));
-            } else {
-                $("#send__success").html(JSON.stringify(iota.utils.transactionObject(trytes)));
-            }
-        })
-    }
-
     function retrieveAddressTransactions(address) {
 
         var params = { "addresses": [address] }
@@ -360,17 +262,78 @@ $(document).ready(function () {
         })
     }
 
+
+    /*
+        UI handler callbacks
+    */
+    var sendTransferResultsHandler = function(error, results) {
+        showMessenger();
+        if (error) {
+
+            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
+            $("#send__success").html(JSON.stringify(error));
+
+            $("#submit").toggleClass("disabled");
+
+            $("#send__waiting").css("display", "none");
+
+        } else {
+
+            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
+            $("#send__success").html(html);
+
+        }
+    }
+
+    var addContactResultHandler = function(error, publicKey){
+        if (!localData.contacts) {
+            localData.contacts = [];
+        }
+        var exists = false;
+        for(var i = 0; i < localData.contacts.length ; i++){
+            if(localData.contacts[i].publicKey === publicKey.publicKey){
+                exists = true;
+                break;
+            }
+        }
+        if(!exists){
+            localData.contacts.push(publicKey);
+        }       
+        saveLocalData(true);
+    }
+
+    var getAccount = function(tag) {
+         console.log("####localData.accounts.length "+localData.accounts.length)
+        for(var i = 0 ; i < localData.accounts.length ; i++) {
+            var accountTag = getPublicKeyTag(localData.accounts[i].publicKey)
+            console.log("tag "+tag)
+            console.log("accountTag "+accountTag)
+            if(accountTag == tag) {
+                return localData.accounts[i] 
+            }
+        }
+        return null
+    }
+
+    var getLocalDataFileName = function() {
+        return window.appRoot + "/data/" + seed.substr(0, 6) + ".json"
+    }
+
+    var createKeyPair = function() {
+        return ntru.keyPair();
+    }
+
     /*
     The first 27 trytes of a public key fingerprint. Intended for use as a tangle transaction tag to make searching for the tag easy.
     */
-    function getPublicKeyTag(publicKey) {
+    var getPublicKeyTag = function(publicKey) {
         return createPublicKeyFinderprint(publicKey).substr(0, 27);
     }
 
     /*
     Creates a 81 tryte hash of a public key. Intended for use as a fingerprint of the public key
     */
-    function createPublicKeyFinderprint(publicKey) {
+    var createPublicKeyFinderprint = function(publicKey) {
         const curl = new Crypto.curl();
         const hash = new Int8Array(243); //81 trytes TODO determine if this is long enough to be a secure fingerprint
         const messageTrits = Crypto.converter.trits(iota.utils.toTrytes(publicKey.toString()));
@@ -384,7 +347,7 @@ $(document).ready(function () {
     /*
     Returns boolean about whether the given fingerprint matches the given publicKey
     */
-    function validatePublicKey(publicKey, fingerprint) {
+    var validatePublicKey = function(publicKey, fingerprint) {
         return createPublicKeyFinderprint(publicKey) === fingerprint
     }
 
@@ -529,9 +492,7 @@ $(document).ready(function () {
     //
     $("#login").on("click", function () {
 
-
         var seed_ = $("#userSeed").val();
-
         var check = validateSeed(seed_);
         if (!check["valid"]) {
             showLogin(check["message"]);
@@ -549,31 +510,26 @@ $(document).ready(function () {
         retrieveAddressTransactions(address);
     });
 
-    $("#create_key_pair").on("click", function () {
-        //createKeyPair();
-        encryptMessage('joe', '');
-    });
-
     $("#add_contact").on("click", function () {
         var address = $("#contact_address").val();
         var tag = address.split('@')[1];
         $("#contact_address").val('');
         // the http request hangs unless this method is called more than once, so workaround is to just call it twice. WTF!!
-        getPublicKey(tag, addContact);
-        getPublicKey(tag, addContact);
+        getPublicKey(tag, addContactResultHandler);
     });
 
     $("#create_account").on("click", function () {
-
-        if (!seed) {
-            var html = '<div class="alert alert-warning alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>No Seed!</strong> You have not entered your seed yet. Do so on the Menu on the right.</div>'
-            $("#send__success").html(html);
-            return
-        }
-
         var name = $("#name").val();
         $("#name").val('');
         createAccount(name)
+    })
+
+    $("#send_message").on("click", function () {
+        var message = $("#message").val();
+        $("#message").val('');
+        var to = ''
+        var from = ''
+        sendMessage(to,from,message)
     })
 
     //
