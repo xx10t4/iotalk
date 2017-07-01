@@ -13,8 +13,15 @@ $(document).ready(function () {
         'port': 14265
     });
 
+    // global state
     var seed;
     var localData = {accounts:[],contacts:[]};
+    var currentAccount;
+    var currentContact;
+    var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
+    var minWeightMagnitude = 14;
+    var tangleDepth = 4;
+    const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback) {
 
@@ -41,9 +48,12 @@ $(document).ready(function () {
                 if (error) return callback(error)
 
                 ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
+                    console.log("attached "+attached)
                     if (error) return callback(error)
 
                     iota.api.storeTransactions(attached, function (error, success) {
+                        console.log("success "+success)
+                        console.log("error "+error)
                         if (error) return callback(error);
                     })
                     iota.api.broadcastTransactions(attached, function (error, success) {
@@ -69,58 +79,19 @@ $(document).ready(function () {
                     if (error) {
                         return callback(error);
                     } else {
-                        //console.log("getTrytescallback: trytes: " + trytes)
                         var transactions = trytes.map(function (transactionTrytes) {
                             return iota.utils.transactionObject(transactionTrytes);
                         });
-                        var max_index = Math.max.apply(Math, transactions.map(function (transaction, idx) {
-                            return parseInt(transaction.currentIndex);
-                        }));
-                        if (transactions.length - max_index > 1) {
-                            // we likely have a replayed bundle, need to remove duplicates (transactions with the same currentIndex)
-                            keep = []
-                            transactions.forEach(function (transaction, idx) {
-                                var seen = keep[transaction.currentIndex];
-                                if (!seen) {
-                                    keep[transaction.currentIndex] = transaction;
-                                } else if (seen.message != transaction.message) {
-                                    // DO we need to validate duplicates and error if they are different?
-                                }
-                            });
-                            transactions = keep;
-                        }
-                        transactionsSorted = transactions.sort(function (a, b) {
-                            return a.currentIndex - b.currentIndex
-                        });
-                        var publicKeyTrytes = ''
-                        addresses = []
-                        transactionsSorted.forEach(function (transaction, idx) {
-                            publicKeyTrytes += transaction.signatureMessageFragment;
-                            var address = transaction.address;
-                            if (addresses.indexOf(address) < 0) {
-                                addresses.push(address);
-                            }
-
-                        });
-                        // TODO sanity check - verify that all transactions were to the same address
-                        // error if addresses.length != 1
-
-                        // kluge to make sure it's an even # of chars for fromTrytes
-                        if (publicKeyTrytes.length % 2 > 0) {
-                            publicKeyTrytes += '9'
-                        }
-                        var decodedStr = iota.utils.fromTrytes(publicKeyTrytes);
-                        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
-                        // TODO validate JSON
-                        try {
-                            publicKey = JSON.parse(jsonStr)
-                        } catch(error) {
-                            return callback(error)
-                        }
-                        publicKey.address = addresses[0]
-                        if (validatePublicKey(publicKey.publicKey, publicKey.fingerprint)) {
-                            return callback(null, publicKey);
-                        }
+                        var bundles = sortToBundles(transactions)
+                        var publicKeys = []
+                        Object.keys(bundles).forEach(function(key, idx){
+                            var publicKey = getBundleMessage(bundles[key])
+                            publicKey.address = bundles[key][0].address
+                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint)) {
+                                publicKeys.push(publicKey);
+                            } 
+                        })                        
+                        return callback(null, publicKeys);
                     }
                 });
             }
@@ -128,44 +99,130 @@ $(document).ready(function () {
         iota.api.getNodeInfo(function (error, results) {})
     }
 
+    var sortToBundles = function(transactions) {
+        bundles = {}
+        for( var i = 0 ; i < transactions.length ; i++) {
+            var transaction = transactions[i]
+            var bundleHash = transaction.bundle
+            if(!bundles[bundleHash]) {
+                bundles[bundleHash] = []
+            }
+            bundles[bundleHash][transaction.currentIndex] = transaction
+
+        }
+        return bundles
+    }
+
+    var getBundleMessage = function(bundle) {
+        var messageTrytes = ''
+        bundle.forEach(function (transaction, idx) {
+            messageTrytes += transaction.signatureMessageFragment;
+        });
+        // kluge to make sure it's an even # of chars for fromTrytes
+        if (messageTrytes.length % 2 > 0) {
+            messageTrytes += '9'
+        }
+        var decodedStr = iota.utils.fromTrytes(messageTrytes);
+        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
+        try {
+            return JSON.parse(jsonStr);
+        } catch(error) {
+            return {error: error.toString()}
+        }
+    }
+
     function getKeyUsername(publicKey) {
         return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
     }
 
-    var encryptMessage = function(message, publicKey) {
+    var encrypt = function(message, publicKey) {
+        var encodedMessage = new codec.TextEncoder().encode(message);
         publicKey = new Uint8Array(publicKey.split(','))
-        var encoder = new codec.TextEncoder();
-        var encodedMessage = encoder.encode(message);
-        return ntru.encrypt(encodedMessage, publicKey);
+        encryptedArray = ntru.encrypt(encodedMessage, publicKey);
+        var encoded = ''
+        encryptedArray.forEach(function(num){
+            encoded += String.fromCharCode(num)
+        })
+        return Buffer.from(encoded).toString('base64')
     }
 
-    var decryptMessage = function(cipherText, privateKey) {
+    var decrypt = function(cipherText, privateKey) {
+        cipherText =  Buffer.from(cipherText, 'base64').toString('utf-8')
+        var decoded = []
+        cipherText.split('').forEach(function(char){
+            decoded.push(char.charCodeAt(0))
+        })
+        var encodedCipher = new Uint8Array(decoded)
         privateKey = new Uint8Array(privateKey.split(','))
-        var encodedMessage = ntru.decrypt(cipherText, privateKey);
-        var decoder = new codec.TextDecoder();
-        return decoder.decode(encodedMessage);
+        try{
+            var encodedMessage = ntru.decrypt(encodedCipher, privateKey);
+            return new codec.TextDecoder().decode(encodedMessage);
+        } catch(error) {
+            return error.toString()
+        }
     }
 
-    var sendMessage = function(toContact, fromAccount, message) {
+    var sendMessage = function(messageText) {
 
-        fromAccount = getAccount('FUPBHEBJNVNUVABVFANYKPERGBO')
-        console.log("from "+fromAccount.name)
+        var messageTo = currentContact
+        var messsageFrom = currentAccount
+        var message = JSON.stringify({
+            to: messageTo.fingerprint,
+            from: encrypt(createPublicKeyFinderprint(messsageFrom.publicKey), messageTo.publicKey),
+            body: encrypt(messageText, messageTo.publicKey),
+            replyAddress: encrypt(messsageFrom.address, messageTo.publicKey)
+        })
+        
+        var transfer = [{
+            'address': messageTo.address,
+            'value': 0,
+            'message': iota.utils.toTrytes(message),
+            'tag': IOTALKMESSAGE_TAG
+        }]
+    
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler)
+        showWaiting("Sending message... this may take a few minutes.");                
 
-        toContact = fromAccount
-        console.log("to "+toContact.name)
+    }
 
-        console.log("message "+message)
-        var encrypted = encryptMessage(message, toContact.publicKey)
-        console.log("encrypted "+encrypted)
+    var getMessages = function(callback) {
 
-        var decrypted = decryptMessage(encrypted, fromAccount.privateKey)
-        console.log("decrypted "+decrypted)
-
-
+        addresses = []
+        for( var i = 0 ; i < localData.accounts.length ; i++) {
+            var address = localData.accounts[i].address
+            if(addresses.indexOf(address) < 0){
+                addresses.push(address)
+            }
+        }
+        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
+            
+            if (error) {
+                return callback(error);
+            } else if (result.length == 0) {
+                // handle empty results
+                return callback("no results in findTransactions callback for tag "+ IOTALKMESSAGE_TAG);
+            } else {
+                iota.api.getTrytes(result, function (error, trytes) {
+                    if (error) {
+                        return callback(error);
+                    } else {
+                        var transactions = trytes.map(function (transactionTrytes) {
+                            return iota.utils.transactionObject(transactionTrytes);
+                        });
+                        var bundles = sortToBundles(transactions)
+                        var messages = []
+                        Object.keys(bundles).forEach(function(bundleHash){
+                            messages.push(getBundleMessage(bundles[bundleHash]))
+                        })
+                        return callback(null, messages);
+                    }
+                });
+            }
+        });
+        iota.api.getNodeInfo(function (error, results) {})
     }
 
     function createAccount(name) {
-        console.log("creatAddress with name: " + name)
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
             if (error) {
                 console.log(error);
@@ -174,9 +231,6 @@ $(document).ready(function () {
                     console.log("no addresses found!");
                     return;
                 }
-                var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
-                var minWeightMagnitude = 15;
-                var tangleDepth = 4;
                 var address = addresses[0];
                 var newKeyPair = createKeyPair();
                 var privateKey = newKeyPair.privateKey.toString();
@@ -218,7 +272,8 @@ $(document).ready(function () {
         var localDataJson = JSON.stringify(localData);
         fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
             if (err) {
-                return console.log(err);
+                console.log(err)
+                return err.toString();
             }
             showAccountsList(refreshKeys);
             showContactsList(refreshKeys);
@@ -230,38 +285,16 @@ $(document).ready(function () {
         if (fs.existsSync(fileName)) {
             fs.readFile(fileName, function (err, contents) {
                 if (err) {
-                    return console.log(err);
+                    console.log(err)
+                    return err.toString();
                 }
                 localData = JSON.parse(contents);
                 showAccountsList(refreshKeys);
                 showContactsList(refreshKeys);
+                getMessages(getMessagesResultsHandler);
             });
         }
     }
-
-    function retrieveAddressTransactions(address) {
-
-        var params = { "addresses": [address] }
-        // Broadcast and store tx
-        iota.api.findTransactionObjects(params, function (error, success) {
-
-            if (error) {
-                $("#send__success").html(JSON.stringify(error));
-            } else {
-                console.log("success", success)
-                var messageFromTrytes = iota.utils.fromTrytes(success[0]["signatureMessageFragment"]);
-                messageObject = JSON.parse(messageFromTrytes)
-
-
-                var results = JSON.stringify(success);
-                var results = JSON.stringify(success);
-                console.log("messageObject", messageObject)
-                console.log("results", results)
-                $("#send__success").html(results);
-            }
-        })
-    }
-
 
     /*
         UI handler callbacks
@@ -285,31 +318,89 @@ $(document).ready(function () {
         }
     }
 
-    var addContactResultHandler = function(error, publicKey){
-        if (!localData.contacts) {
-            localData.contacts = [];
+    var sendMessageResultsHandler = function(error, results) {
+        showMessenger();
+        if (error) {
+
+            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
+            $("#send__success").html(JSON.stringify(error));
+
+            $("#submit").toggleClass("disabled");
+
+            $("#send__waiting").css("display", "none");
+
+        } else {
+
+            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sent a message.</div>'
+            $("#send_message_success").html(html);
+
         }
-        var exists = false;
-        for(var i = 0; i < localData.contacts.length ; i++){
-            if(localData.contacts[i].publicKey === publicKey.publicKey){
-                exists = true;
-                break;
+    }
+
+    var getMessagesResultsHandler = function(error, messages) {
+
+        if(error) {
+            console.log("in handler error:  " +error)
+        } else {
+            messages.forEach(function(message){
+                if(message.to){
+                    var account = getAccount(message.to)
+                    var messageBody = decrypt(message.body, account.privateKey)
+                    var from = decrypt(message.from, account.privateKey)
+                    var replyAddress = decrypt( message.replyAddress, account.privateKey)
+                    console.log("in handler messageBody:  " +messageBody)
+                    console.log("in handler from:  " +from)
+                    console.log("in handler replyAddress:  " +replyAddress)
+                }
+            })
+
+        }
+    }
+
+    var addContactResultHandler = function(error, publicKeys) {
+
+        publicKeys.forEach(function(publicKey){
+            if (!localData.contacts) {
+                localData.contacts = [];
             }
-        }
-        if(!exists){
-            localData.contacts.push(publicKey);
-        }       
+            var exists = false;
+            for(var i = 0; i < localData.contacts.length ; i++){
+                if(localData.contacts[i].publicKey === publicKey.publicKey){
+                    exists = true;
+                    break;
+                }
+            }
+            if(!exists){
+                localData.contacts.push(publicKey);
+            }                   
+        })
         saveLocalData(true);
     }
 
-    var getAccount = function(tag) {
-         console.log("####localData.accounts.length "+localData.accounts.length)
+    var getAccount = function(tagOrFingerprint) {
+        var func
+        if(tagOrFingerprint.length == 27){
+            func = getPublicKeyTag
+        } else {
+            func = createPublicKeyFinderprint
+        }
         for(var i = 0 ; i < localData.accounts.length ; i++) {
-            var accountTag = getPublicKeyTag(localData.accounts[i].publicKey)
-            console.log("tag "+tag)
-            console.log("accountTag "+accountTag)
-            if(accountTag == tag) {
-                return localData.accounts[i] 
+            var account = localData.accounts[i]
+            var accountTag = func(account.publicKey) 
+            if(accountTag === tagOrFingerprint) {
+               return account 
+            }
+        }
+        return null
+    }
+
+    var getContact = function(tagOrFingerprint) {
+        var tag = tagOrFingerprint.substr(0,27)
+        for(var i = 0 ; i < localData.contacts.length ; i++) {
+            var contact = localData.contacts[i]
+            var contactTag = getPublicKeyTag(contact.publicKey)
+            if(contactTag === tag) {
+                return contact
             }
         }
         return null
@@ -365,7 +456,9 @@ $(document).ready(function () {
         if (localData.accounts && localData.accounts.length > 0) {
             $('#accountsList').empty()
             localData.accounts.forEach(function (account) {
-                $('#accountsList').append('<li id="'+getPublicKeyTag(account.publicKey)+'">' + getKeyUsername(account) + '</li>')
+                var tag = getPublicKeyTag(account.publicKey)
+                var userName = getKeyUsername(account) 
+                $('#accountsList').append('<li id="'+ tag +'"><input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label for="fromAddress'+ tag + '">' + userName + '</li>')
             });
             if(refreshKeys){              
                 localData.accounts.forEach(function (account) {
@@ -395,7 +488,7 @@ $(document).ready(function () {
     }
 
     function showAccountVerified(verifiedAccount, type='accounts') {
-        console.log("showAccountVerified")
+        
         if (localData[type] && localData[type].length > 0) {
             localData[type].forEach(function (account) {        
                 if(verifiedAccount.publicKey === account.publicKey ){
@@ -409,7 +502,9 @@ $(document).ready(function () {
         if(localData.contacts && localData.contacts.length > 0) {
             $('#contactsList').empty()
             localData.contacts.forEach(function (contact) {
-                $('#contactsList').append('<li id="'+getPublicKeyTag(contact.publicKey)+'">' + getKeyUsername(contact) + '</li>')
+                var tag = getPublicKeyTag(contact.publicKey)
+                var userName = getKeyUsername(contact) 
+                $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + '</li>')
             });
             if(refreshKeys){              
                 localData.contacts.forEach(function (account) {
@@ -472,10 +567,8 @@ $(document).ready(function () {
     // Properly formats the seed, replacing all non-latin chars with 9's
     //
     function setSeed(value) {
-
         seed = "";
         value = value.toUpperCase();
-
         for (var i = 0; i < value.length; i++) {
             if (("9ABCDEFGHIJKLMNOPQRSTUVWXYZ").indexOf(value.charAt(i)) < 0) {
                 seed += "9";
@@ -485,13 +578,7 @@ $(document).ready(function () {
         }
     }
 
-
-
-    //
-    // Set seed
-    //
     $("#login").on("click", function () {
-
         var seed_ = $("#userSeed").val();
         var check = validateSeed(seed_);
         if (!check["valid"]) {
@@ -502,12 +589,6 @@ $(document).ready(function () {
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
         showMessenger();
-    });
-
-    $("#submit_receive_address").on("click", function () {
-
-        var address = $("#address").val();
-        retrieveAddressTransactions(address);
     });
 
     $("#add_contact").on("click", function () {
@@ -524,36 +605,24 @@ $(document).ready(function () {
         createAccount(name)
     })
 
+    $('#contactsList').on('click','label',function() {
+        var username = $(this).prev().val()
+        currentContact = getContact(username.split('@')[1])
+       $('#contactsList label').removeClass("current")   
+        $(this).addClass("current")
+    });
+
+    $('#accountsList').on('click','label',function() {
+        var username = $(this).prev().val()
+        currentAccount = getAccount(username.split('@')[1])
+        $('#accountsList label').removeClass("current")   
+        $(this).addClass("current")
+    });
+
     $("#send_message").on("click", function () {
         var message = $("#message").val();
         $("#message").val('');
-        var to = ''
-        var from = ''
-        sendMessage(to,from,message)
+         sendMessage(message)
     })
 
-    //
-    // Generate a new address
-    //
-    $("#genAddress").on("click", function () {
-
-        if (!seed) {
-            console.log("You did not enter your seed yet");
-            return
-        }
-
-        // Deterministically generates a new address for the specified seed with a checksum
-        iota.api.getNewAddress(seed, { 'checksum': true }, function (e, address) {
-
-            if (!e) {
-
-                address = address;
-                updateAddressHTML(address);
-
-            } else {
-
-                console.log(e);
-            }
-        })
-    })
 });

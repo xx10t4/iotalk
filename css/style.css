@@ -10,6 +10,10 @@
   -webkit-border-radius: 0;
 }
 
+ul {
+    list-style-type: none;
+ }
+
 body,
 html {
   font-family: 'Ubuntu', sans-serif;
@@ -47,8 +51,6 @@ main {
   display: none;
 }
 
-
-
 #login-message {
   background-color: #ffe6b3;
   border: solid 1px #2D3142;
@@ -69,6 +71,28 @@ main {
 .middle {
   margin: 0 auto;
 }
+
+.userList input[type=radio] {
+  display: none;
+}
+
+.userList label {
+  padding: 2px 4px;
+  border: solid 1px #dddddd;
+  margin: 3px 0px;
+}
+
+.userList label.current {
+  background-color: #006600;
+  color: #ffffff;
+}
+
+#contactsList label.current {
+  padding: 2px;
+  background-color: #006600;
+  color: #ffffff;
+}
+
 
 .glyphicon-refresh-animate {
     -animation: spin 1s infinite linear;
