@@ -7,3 +7,4 @@ window.appRoot = path.resolve(__dirname);
 
 window.$ = window.jQuery = require('jquery');
 require("./js/index.js");
+require("bootstrap")

@@ -22,39 +22,42 @@ html {
   background-color: #eee;
 }
 
-.header {
-  width: 100%;
-  background-color: #32DBBD;
-  color: #fff;
-  font-family: 'Galada', cursive;
-  overflow: hidden;
-  text-align: center;
-}
-
-
-
-
-main {
-  position: relative;
-  height: 100%;
-  background-color: #eee;
-  -webkit-transition: transform .7s ease-in-out;
-  -moz-transition: transform .7s ease-in-out;
-  -ms-transition: transform .7s ease-in-out;
-  -o-transition: transform .7s ease-in-out;
-  transition: transform .7s ease-in-out;
-  width: 600px;
-  margin: 0 auto;
-}
-
 .hidden {
   display: none;
 }
 
+.container {
+  background-color: #ffffff;
+  display:table;
+  width: 100%;
+  height:100%;
+  margin-top: 0px;
+  padding: 0; /*set left/right padding according to needs*/
+  box-sizing: border-box;
+  position: relative;
+}
+
+.row {
+    height: 100%;
+    display: table-row;
+}
+
+.col-md-4 {
+  background-color: #666666;
+  color: #cccccc;
+  height: 100%;
+}
+
+.col-md-8 {
+  background-color: #e8e8e8;
+  height: 100%;
+}
+
+
+
 #login-message {
   background-color: #ffe6b3;
   border: solid 1px #2D3142;
-  padding: 5px;
   margin: 10px auto;  
 }
 
@@ -65,34 +68,68 @@ main {
 
 .verified {
   font-weight: bold;
-  color: #006600;
 }
 
 .middle {
   margin: 0 auto;
 }
 
-.userList input[type=radio] {
+.usersSection h4 {
+  color: #ffffff;
+}
+
+.usersSection a.btn-sm {
+  float: right;
+  margin: 3px 0 10px;
+}
+
+.usersSection input[type=radio] {
   display: none;
 }
 
-.userList label {
-  padding: 2px 4px;
-  border: solid 1px #dddddd;
-  margin: 3px 0px;
+.usersSection label {
+  padding: 6px 12px;
+  width: 100%;
 }
 
-.userList label.current {
-  background-color: #006600;
+.usersSection .verified {
   color: #ffffff;
 }
 
-#contactsList label.current {
-  padding: 2px;
-  background-color: #006600;
+.usersSection label.current {
+  background-color: #04a997;
   color: #ffffff;
 }
 
+.scroll,.messages {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  right: 0px;
+  bottom: 100px;
+  overflow-y: auto;
+}
+
+.messageInput {
+  position:fixed;
+  top: 100%;
+  margin-top: -75px;
+  height: 75px;
+  padding-right: 100x;
+}
+
+li.message {
+  padding-bottom: 15px;
+}
+
+li.message .time {
+  color: #666666;
+  font-size: 85%;
+}
+
+#send_message {
+  cursor: pointer;
+}
 
 .glyphicon-refresh-animate {
     -animation: spin 1s infinite linear;

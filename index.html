@@ -5,91 +5,126 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>My IOTA Chat</title>
+    <title>IOTA1k</title>
 
-    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="./node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="css/style.css" rel="stylesheet">
 </head>
 <body>
-   <main>
-        <header class="header">
-            <p class="header__title">IOTAlk</p>
-        </header>
 
-        <section class="login_section">
-            <div class="row">
-                <div class="col-xs-12">
-                    <div id="login-message" class="hidden"> </div>
-                    <div class="form-group">
-                        <select name="userSeed" id="userSeed">
-                            <option>CPPSMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN</option>
-                            <option>BILLMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN</option>
-                        </select>
-                    </div>
+    <section class="login_section">
+        <div class="row">
+            <div class="col-xs-12">
+                <div id="login-message" class="hidden"> </div>
+                <div class="form-group">
+                    <select name="userSeed" id="userSeed">
+                        <option>CPPSMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN</option>
+                        <option>BILLMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN</option>
+                        <option>BOGUS</option>
+                    </select>
                 </div>
-                <div class="login_button">
-                    <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
-                </div>                       
-            </div>      
-        </section>
+            </div>
+            <div class="login_button">
+                <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
+            </div>                       
+        </div>      
+    </section>
 
-        <section class="messenger_section hidden">
-            <div class="row">
-                <h4>Accounts</h4>
-                <div class="col-xs-12">
+    <section class="messenger_section hidden container">
+        <div class="row">               
+            <div class="col-md-4 usersSection">
+                <div class="scroll">
+                    <a href="#accountAddModal" role="button" class="btn btn-sm btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
+                    <h4>Accounts</h4>
                     <ul id="accountsList" class="userList">
-                        <li>You do not have any accounts set up. Choose a handle and click <b>create cccount</b> to set up a new account. Handles must NOT have a <b>@</b> character in them.</li>
+                        <li>
+                            <p>To set up a new account click the <a href="" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a> button above. You can create as many accounts as you want. Think of them like email addresses.
+                            <p>Start by choosing a nickname, or handle, for your account. Handles should be short, and must NOT have a <b>@</b> character in them. IOTAlk will generate a unique tag for the account. The account <b>address</b> will be a combination of the handle and tag and will look similar to an email address, something like <b>myhandle@FJKEJISENRNDKRMTNYJSKWMTNYT</b></p>
+                        </li>
                     </ul>
-                    <div class="form-group">
-                        <input type="text" class="form-control" id="name" placeholder="Enter a handle">
-                        <button class="btn btn-success btn-md" id="create_account">create account</button>
-                    </div>
-                </div>
-                <hr />
-                <h4>Contacts</h4>
-                <div class="col-xs-12">
+                    
+                    <br clear="all" />
+                    <a href="#contactAddModal" role="button" class="btn btn-sm btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
+                    <h4>Contacts</h4>
                     <ul id="contactsList" class="userList">
-                        <li>You do not have any contacts set up. Use <b>add contact</b> to add contacts.</li>
+                        <li>Use the <a href="" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a> button above to add contacts. Enter a valid IOTAlk address.</li>
                     </ul>
-                    <div class="form-group">
-                        <input type="text" class="form-control" id="contact_address" placeholder="Enter a contact address">
-                        <button class="btn btn-success btn-md" id="add_contact">add contact</button>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="messages">
+                    <ul id="messagesList">
+                        <li>Select an Account and a Contact to send a message.</li>
+                    </ul>
+                    <div class="sending_message_spinner">
+                        <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> 
+                        <span id="waiting_message">Working...</span>
                     </div>
                 </div>
-                <div class="col-xs-12">
-                    <div class="form-group">
-                        <label for="name">Message</label>
+                <div class="messageInput">
+                    <div class="input-group">
                         <input type="text" class="form-control" id="message" placeholder="">
-                        <div class="send__button">
-                            <button class="btn btn-success btn-lg" id="send_message">Send</button>
+                        <span class="input-group-addon">
+                            <i id="send_message" class="fa fa-search send_button">Send</i>
+                        </span>
+                    </div>
+                </div>
+                 
+            </div>
+        </div>
+
+
+        <div id="accountAddModal" class="modal fade">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                        <h4 class="modal-title">Create New Account</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <input type="text" class="form-control" id="name" placeholder="Enter a handle">
                         </div>
                     </div>
-                </div>
-              
-                <hr />
-
-                <div id="debug"></div>
-
-            </div>
-
-        </section>
-
-
-        <section class="waiting_section hidden">
-           <div class="row">
-                <div class="col-xs-12">
-                     <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> 
-                     <span id="waiting_message">Working...</span>                  
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" id="create_account">create account</button>
+                    </div>
                 </div>
             </div>
-        </section>
+        </div>
 
-    </main>
-    
+        <div id="contactAddModal" class="modal fade">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                        <h4 class="modal-title">Add a Contact</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <input type="text" class="form-control" id="contact_address" placeholder="Enter a contact address">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" id="add_contact">add contact</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <section class="waiting_section hidden">
+        <div class="row">
+            <div class="col-xs-12">
+                    <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> 
+                    <span id="waiting_message">Working...</span>                  
+            </div>
+        </div>
+    </section>
   </body>
 </html>
-  </body>
   <script>
     require('./renderer.js')
   </script>
-</html>
+

@@ -7,11 +7,14 @@ $(document).ready(function () {
     var codec = require('text-encoding');
     var ccurlInterface = require('ccurl.interface.js')
     const path = require("path");
+    const MessagesStore = require("./messages.js")
     //  Instantiate IOTA with provider 'http://localhost:14265'
     var iota = new IOTA({
         'host': 'http://iota1/',
         'port': 14265
     });
+
+    var messagesStore;
 
     // global state
     var seed;
@@ -19,7 +22,7 @@ $(document).ready(function () {
     var currentAccount;
     var currentContact;
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
-    var minWeightMagnitude = 14;
+    var minWeightMagnitude = 15;
     var tangleDepth = 4;
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
@@ -48,12 +51,9 @@ $(document).ready(function () {
                 if (error) return callback(error)
 
                 ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
-                    console.log("attached "+attached)
                     if (error) return callback(error)
 
                     iota.api.storeTransactions(attached, function (error, success) {
-                        console.log("success "+success)
-                        console.log("error "+error)
                         if (error) return callback(error);
                     })
                     iota.api.broadcastTransactions(attached, function (error, success) {
@@ -61,7 +61,6 @@ $(document).ready(function () {
                         return callback(null, success)
                     })
                     iota.api.getNodeInfo(function (error, results) {})
-
                 })
             })
         })
@@ -87,7 +86,7 @@ $(document).ready(function () {
                         Object.keys(bundles).forEach(function(key, idx){
                             var publicKey = getBundleMessage(bundles[key])
                             publicKey.address = bundles[key][0].address
-                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint)) {
+                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
                                 publicKeys.push(publicKey);
                             } 
                         })                        
@@ -165,12 +164,13 @@ $(document).ready(function () {
     var sendMessage = function(messageText) {
 
         var messageTo = currentContact
-        var messsageFrom = currentAccount
+        var messageFrom = currentAccount
+        var messageFromFingerprint = createPublicKeyFinderprint(messageFrom.publicKey)
         var message = JSON.stringify({
             to: messageTo.fingerprint,
-            from: encrypt(createPublicKeyFinderprint(messsageFrom.publicKey), messageTo.publicKey),
+            from: encrypt(messageFromFingerprint, messageTo.publicKey),
             body: encrypt(messageText, messageTo.publicKey),
-            replyAddress: encrypt(messsageFrom.address, messageTo.publicKey)
+            replyAddress: encrypt(messageFrom.address, messageTo.publicKey)
         })
         
         var transfer = [{
@@ -181,6 +181,13 @@ $(document).ready(function () {
         }]
     
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler)
+        messagesStore.insert({
+            text: messageText,
+            to: messageTo.fingerprint,
+            from: messageFromFingerprint,
+            timestamp: new Date(),
+            address: messageTo.address
+        })
         showWaiting("Sending message... this may take a few minutes.");                
 
     }
@@ -212,6 +219,12 @@ $(document).ready(function () {
                         var bundles = sortToBundles(transactions)
                         var messages = []
                         Object.keys(bundles).forEach(function(bundleHash){
+                            var timestamp = bundles[bundleHash][0].timestamp
+                            if(timestamp) {
+                                timestamp = new Date(timestamp*1000)
+                            }
+                            var message = getBundleMessage(bundles[bundleHash])
+                            message.timestamp = timestamp
                             messages.push(getBundleMessage(bundles[bundleHash]))
                         })
                         return callback(null, messages);
@@ -236,12 +249,14 @@ $(document).ready(function () {
                 var privateKey = newKeyPair.privateKey.toString();
                 var publicKey = newKeyPair.publicKey.toString();
                 var username = getKeyUsername({ name: name, publicKey: publicKey });
+                var fingerprint = createPublicKeyFinderprint(publicKey)
 
                 account = {
                     privateKey: privateKey,
                     publicKey: publicKey,
                     name: name,
-                    address: address
+                    address: address,
+                    fingerprint: fingerprint
                 }
                 if (!localData.accounts) {
                     localData.accounts = [];
@@ -260,7 +275,7 @@ $(document).ready(function () {
                     'tag': getPublicKeyTag(publicKeyMessage.publicKey)
                 }]
             
-                sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendTransferResultsHandler)
+                sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler)
                 $("#submit").toggleClass("disabled");
                 showWaiting("Creating account... this may take a few minutes.");                
                 saveLocalData();
@@ -268,15 +283,15 @@ $(document).ready(function () {
         })
     }
 
-    function saveLocalData(refreshKeys=false) {
+    function saveLocalData() {
         var localDataJson = JSON.stringify(localData);
         fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
             if (err) {
                 console.log(err)
                 return err.toString();
             }
-            showAccountsList(refreshKeys);
-            showContactsList(refreshKeys);
+            showAccountsList();
+            showContactsList();
         });
     }
 
@@ -289,17 +304,76 @@ $(document).ready(function () {
                     return err.toString();
                 }
                 localData = JSON.parse(contents);
-                showAccountsList(refreshKeys);
-                showContactsList(refreshKeys);
+                if(refreshKeys) {
+                    refreshAccountKeys();
+                    refreshContactKeys();
+                }
+                showAccountsList();
+                showContactsList();
                 getMessages(getMessagesResultsHandler);
             });
         }
     }
 
+    var refreshAccountKeys = function() {         
+        localData.accounts.forEach(function (account, idx) {           
+            getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
+                var errorMsg = checkUser(error, publicKeys, account)
+                if(errorMsg) {
+                    account.error = errorMsg
+                    localData.accounts[idx] = account
+                    saveLocalData()
+                }
+            })
+        })
+        if(localData.accounts.length == 1) {
+            getPublicKey(getPublicKeyTag(localData.accounts[0].publicKey), function(error, publicKey){
+                // only called because of request bug that hangs sometimes
+            })
+        }
+    }
+
+    var refreshContactKeys = function() {         
+        localData.contacts.forEach(function (contact, idx) {           
+            getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
+                var errorMsg = checkUser(error, publicKeys, contact)
+                console.log("contact"+contact)
+                    
+                if(errorMsg) {
+                    console.log(errorMsg)
+                    contact.error = errorMsg
+                    localData.contacts[idx] = contact
+                    saveLocalData()
+                }
+            })
+        })
+        if(localData.contacts.length == 1) {
+            getPublicKey(getPublicKeyTag( localData.contacts[0].publicKey), function(error, publicKey){
+                // only called because of request bug that hangs sometimes
+            })
+        }
+    }
+
+    var checkUser = function(error, publicKeys, user) {
+        if(error) {
+            return "Error getting publicKey key: "+error.toString()
+        } 
+        if(publicKeys.length < 1) { 
+            return "getPublicKey returned "+publicKeys.length+" publicKeys"
+        }
+        if(publicKeys.length > 1) { 
+            return "getPublicKey returned "+publicKeys.length+" publicKeys!"
+        }
+        if(publicKeys[0].fingerprint != createPublicKeyFinderprint(user.publicKey)) { 
+            return "getPublicKey returned a key with a different fingerprint"
+        }
+        return false
+    }
+
     /*
         UI handler callbacks
     */
-    var sendTransferResultsHandler = function(error, results) {
+    var addAccountResultsHandler = function(error, results) {
         showMessenger();
         if (error) {
 
@@ -345,12 +419,13 @@ $(document).ready(function () {
             messages.forEach(function(message){
                 if(message.to){
                     var account = getAccount(message.to)
-                    var messageBody = decrypt(message.body, account.privateKey)
-                    var from = decrypt(message.from, account.privateKey)
                     var replyAddress = decrypt( message.replyAddress, account.privateKey)
-                    console.log("in handler messageBody:  " +messageBody)
-                    console.log("in handler from:  " +from)
-                    console.log("in handler replyAddress:  " +replyAddress)
+
+                    messagesStore.upsert({
+                        to: message.to,
+                        from: decrypt(message.from, account.privateKey),
+                        text: decrypt(message.body, account.privateKey)
+                    })
                 }
             })
 
@@ -452,84 +527,58 @@ $(document).ready(function () {
         loadLocalData(true);
     }
 
-    var showAccountsList = function (refreshKeys=false) {
+    var showAccountsList = function () {
         if (localData.accounts && localData.accounts.length > 0) {
             $('#accountsList').empty()
             localData.accounts.forEach(function (account) {
-                var tag = getPublicKeyTag(account.publicKey)
-                var userName = getKeyUsername(account) 
-                $('#accountsList').append('<li id="'+ tag +'"><input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label for="fromAddress'+ tag + '">' + userName + '</li>')
-            });
-            if(refreshKeys){              
-                localData.accounts.forEach(function (account) {
-                    
-                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
-                        if(error) {
-                            console.log("error getting publicKey key for "+ account);
-                            console.log(error);
-                        } else {
-                            showAccountVerified(account)
-                        }
-                    });
-                });
-                if(localData.accounts.length == 1) {
-                    var account = localData.accounts[0]
-                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
-                        if(error) {
-                            console.log("error getting publicKey key for "+ account);
-                            console.log(error);
-                        } else {
-                            showAccountVerified(account)
-                        }
-                    });
-                }          
-            }
-        }
-    }
-
-    function showAccountVerified(verifiedAccount, type='accounts') {
-        
-        if (localData[type] && localData[type].length > 0) {
-            localData[type].forEach(function (account) {        
-                if(verifiedAccount.publicKey === account.publicKey ){
-                    $('#'+getPublicKeyTag(account.publicKey)).addClass("verified")
+                if(!account.error) {
+                    var tag = getPublicKeyTag(account.publicKey)
+                    var userName = getKeyUsername(account) 
+                    $('#accountsList').append('<li id="'+ tag +'"><input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label for="fromAddress'+ tag + '">' + userName + '</li>')
                 }
             });
         }
     }
 
-    function showContactsList(refreshKeys=false) {
+    var showContactsList = function() {
         if(localData.contacts && localData.contacts.length > 0) {
             $('#contactsList').empty()
             localData.contacts.forEach(function (contact) {
-                var tag = getPublicKeyTag(contact.publicKey)
-                var userName = getKeyUsername(contact) 
-                $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + '</li>')
+                if(!contact.error) {
+                    var tag = getPublicKeyTag(contact.publicKey)
+                    var userName = getKeyUsername(contact) 
+                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + '</label></li>')
+                }
             });
-            if(refreshKeys){              
-                localData.contacts.forEach(function (account) {
-                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
-                        if(error) {
-                            console.log("error getting publicKey key for "+ account);
-                            console.log(error);
-                        } else {
-                            showAccountVerified(account, "contacts")
-                        }
-                    });
-                });
-                if(localData.contacts.length == 1) {
-                    var account = localData.contacts[0]
-                    getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKey){
-                        if(error) {
-                            console.log("error getting publicKey key for "+ account);
-                            console.log(error);
-                        } else {
-                            showAccountVerified(account, "contacts")
-                        }
-                    });
-                }          
-            }
         }
+    }
+
+    var showMessageList = function() {
+        if(currentAccount && currentContact) {
+            var accountfingerprint = createPublicKeyFinderprint(currentAccount.publicKey)
+            var messages = messagesStore.find({
+                from: { '$in' :[accountfingerprint, currentContact.fingerprint]},
+                to: { '$in' :[accountfingerprint, currentContact.fingerprint]}
+            })
+            $('#messagesList').empty()
+            messages.forEach(function (message) {
+                var from = message.from === accountfingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
+                if(from){
+                    from = getKeyUsername(from) 
+                }
+
+                $('#messagesList').append('<li class="message"><b>' + from + '</b> <span class="time">' + formatTimestamp(message.timestamp) + '</span><br />'+message.text+'</label></li>')
+            });
+        }
+
+    }
+
+    var formatTimestamp = function(timestamp) {
+        if(timestamp !== undefined) {
+            console.log(JSON.stringify(new Date(timestamp)))
+            return new Date(timestamp).toLocaleTimeString().toLowerCase()
+        }
+        return ''
     }
 
     function showWaiting(message) {
@@ -578,6 +627,24 @@ $(document).ready(function () {
         }
     }
 
+    function setMessagesStore() {
+        iota.api.getNewAddress(seed, { 'checksum': true, total: 1, index: 0 }, function (error, addresses) {
+            if (error) {
+                console.log(error);
+            } else {
+                if (addresses.length != 1) {
+                    console.log("no addresses found!");
+                    return;
+                }
+                var address = addresses[0];
+                messagesStore = new MessagesStore(seed, address+'.data')
+            }
+        })       
+    }
+
+
+    // Event handlers
+
     $("#login").on("click", function () {
         var seed_ = $("#userSeed").val();
         var check = validateSeed(seed_);
@@ -588,6 +655,7 @@ $(document).ready(function () {
         $("#login-message").addClass("hidden");
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
+        setMessagesStore()
         showMessenger();
     });
 
@@ -608,6 +676,7 @@ $(document).ready(function () {
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
         currentContact = getContact(username.split('@')[1])
+        showMessageList();
        $('#contactsList label').removeClass("current")   
         $(this).addClass("current")
     });
@@ -615,6 +684,8 @@ $(document).ready(function () {
     $('#accountsList').on('click','label',function() {
         var username = $(this).prev().val()
         currentAccount = getAccount(username.split('@')[1])
+        showMessageList();
+        console.log("currentAccount: "+currentAccount)
         $('#accountsList label').removeClass("current")   
         $(this).addClass("current")
     });
