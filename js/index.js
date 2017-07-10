@@ -26,7 +26,7 @@ $(document).ready(function () {
     var tangleDepth = 4;
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
-    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback) {
+    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
 
         // Validity check for number of arguments
         if (arguments.length < 4) {
@@ -45,20 +45,20 @@ $(document).ready(function () {
         }
 
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
-            if (error) return callback(error)
+            if (error) return callback(error, callbackOptions)
 
             iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
-                if (error) return callback(error)
+                if (error) return callback(error, callbackOptions)
 
                 ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
-                    if (error) return callback(error)
+                    if (error) return callback(error, callbackOptions)
 
                     iota.api.storeTransactions(attached, function (error, success) {
-                        if (error) return callback(error);
+                        if (error) return callback(error, callbackOptions);
                     })
                     iota.api.broadcastTransactions(attached, function (error, success) {
-                        if (error) return callback(error);
-                        return callback(null, success)
+                        if (error) return callback(error, callbackOptions);
+                        return callback(null, Object.assign({},success, callbackOptions))
                     })
                     iota.api.getNodeInfo(function (error, results) {})
                 })
@@ -179,16 +179,19 @@ $(document).ready(function () {
             'message': iota.utils.toTrytes(message),
             'tag': IOTALKMESSAGE_TAG
         }]
-    
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler)
-        messagesStore.insert({
+
+        var localMessage = {
             text: messageText,
             to: messageTo.fingerprint,
             from: messageFromFingerprint,
             timestamp: new Date(),
-            address: messageTo.address
-        })
-        showWaiting("Sending message... this may take a few minutes.");                
+            address: messageTo.address,
+            status: 'sending'
+        }
+    
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
+        messagesStore.insert(localMessage)
+        showMessageList();                
 
     }
 
@@ -251,7 +254,7 @@ $(document).ready(function () {
                 var username = getKeyUsername({ name: name, publicKey: publicKey });
                 var fingerprint = createPublicKeyFinderprint(publicKey)
 
-                account = {
+                var account = {
                     privateKey: privateKey,
                     publicKey: publicKey,
                     name: name,
@@ -275,7 +278,7 @@ $(document).ready(function () {
                     'tag': getPublicKeyTag(publicKeyMessage.publicKey)
                 }]
             
-                sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler)
+                sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
                 $("#submit").toggleClass("disabled");
                 showWaiting("Creating account... this may take a few minutes.");                
                 saveLocalData();
@@ -336,9 +339,7 @@ $(document).ready(function () {
     var refreshContactKeys = function() {         
         localData.contacts.forEach(function (contact, idx) {           
             getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
-                var errorMsg = checkUser(error, publicKeys, contact)
-                console.log("contact"+contact)
-                    
+                var errorMsg = checkUser(error, publicKeys, contact)                    
                 if(errorMsg) {
                     console.log(errorMsg)
                     contact.error = errorMsg
@@ -392,23 +393,24 @@ $(document).ready(function () {
         }
     }
 
-    var sendMessageResultsHandler = function(error, results) {
-        showMessenger();
+    var sendMessageResultsHandler = function(error, results) {          
         if (error) {
-
-            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
-            $("#send__success").html(JSON.stringify(error));
-
-            $("#submit").toggleClass("disabled");
-
-            $("#send__waiting").css("display", "none");
-
+            console.log("sendMessageResultsHandler error: "+JSON.stringify(error))
+            if(results && results.message) {
+                results.message.status = 'error'
+                console.log("sendMessageResultsHandler results.message: "+JSON.stringify(results.message))
+                results.message.errorMessage = error
+            }
         } else {
-
-            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sent a message.</div>'
-            $("#send_message_success").html(html);
-
+            if(results && results.message) {
+                console.log("sendMessageResultsHandler results.message: "+JSON.stringify(results.message))
+                results.message.status = 'sent'
+            }
         }
+        messagesStore.update(results.message)
+                        console.log("sendMessageResultsHandler after update: "+JSON.stringify(results.message))
+
+        showMessageList()
     }
 
     var getMessagesResultsHandler = function(error, messages) {
@@ -566,8 +568,14 @@ $(document).ready(function () {
                 if(from){
                     from = getKeyUsername(from) 
                 }
+                var info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
+                if(message.status === 'sending') {
+                    info = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>sending...</span>'
+                } else if (message.status === 'error') {
+                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message</span>'
+                }
 
-                $('#messagesList').append('<li class="message"><b>' + from + '</b> <span class="time">' + formatTimestamp(message.timestamp) + '</span><br />'+message.text+'</label></li>')
+                $('#messagesList').append('<li class="message"><b>' + from + '</b> '+info+ '<br />'+message.text+'</label></li>')
             });
         }
 
@@ -575,7 +583,6 @@ $(document).ready(function () {
 
     var formatTimestamp = function(timestamp) {
         if(timestamp !== undefined) {
-            console.log(JSON.stringify(new Date(timestamp)))
             return new Date(timestamp).toLocaleTimeString().toLowerCase()
         }
         return ''

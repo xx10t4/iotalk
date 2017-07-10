@@ -31,7 +31,6 @@ html {
   display:table;
   width: 100%;
   height:100%;
-  margin-top: 0px;
   padding: 0; /*set left/right padding according to needs*/
   box-sizing: border-box;
   position: relative;
@@ -42,18 +41,28 @@ html {
     display: table-row;
 }
 
-.col-md-4 {
-  background-color: #666666;
-  color: #cccccc;
-  height: 100%;
+.col-md-4, .col-md-8 {
+    height: 100%;
+
 }
 
-.col-md-8 {
-  background-color: #e8e8e8;
-  height: 100%;
+.scroll {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  bottom: 80px;
+  overflow-y: auto;
 }
 
-
+.fixed {
+  position:absolute;
+  top: 100%;
+  left: 0px;
+  right: 0px;
+  margin-top: -75px;
+  height: 75px; 
+}
 
 #login-message {
   background-color: #ffe6b3;
@@ -74,48 +83,50 @@ html {
   margin: 0 auto;
 }
 
-.usersSection h4 {
+.users-section {
+  padding: 20px;
+  background-color: #123d43;
+  color: #5D939B;
+  height: 100%;
+}
+
+.users-section h4 {
   color: #ffffff;
 }
 
-.usersSection a.btn-sm {
-  float: right;
-  margin: 3px 0 10px;
+.users-section .btn-xs {
+  margin:8px 0 10px;
+  color: #5D939B;
+  border-color: #5D939B;
+  border-radius: 12px;
+  background-color: #123d43;
 }
 
-.usersSection input[type=radio] {
+.users-section a.btn-xs {
+  float: right;
+}
+
+.users-section input[type=radio] {
   display: none;
 }
 
-.usersSection label {
+.users-section label {
   padding: 6px 12px;
   width: 100%;
 }
 
-.usersSection .verified {
-  color: #ffffff;
-}
-
-.usersSection label.current {
+.users-section label.current {
   background-color: #04a997;
   color: #ffffff;
+  border-radius: 5px;
 }
 
-.scroll,.messages {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  right: 0px;
-  bottom: 100px;
-  overflow-y: auto;
+.messages-section, .message-input{ 
+  padding: 20px;
 }
 
-.messageInput {
-  position:fixed;
-  top: 100%;
-  margin-top: -75px;
-  height: 75px;
-  padding-right: 100x;
+.message-input {
+  padding-top: 0px;
 }
 
 li.message {

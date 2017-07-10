@@ -32,36 +32,32 @@
 
     <section class="messenger_section hidden container">
         <div class="row">               
-            <div class="col-md-4 usersSection">
-                <div class="scroll">
-                    <a href="#accountAddModal" role="button" class="btn btn-sm btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
+            <div class="col-md-4">
+                <div class="scroll users-section">
+                    <a href="#accountAddModal" role="button" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
                     <h4>Accounts</h4>
                     <ul id="accountsList" class="userList">
                         <li>
-                            <p>To set up a new account click the <a href="" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a> button above. You can create as many accounts as you want. Think of them like email addresses.
+                            <p>To set up a new account click the <span class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above. You can create as many accounts as you want. Think of them like email addresses.
                             <p>Start by choosing a nickname, or handle, for your account. Handles should be short, and must NOT have a <b>@</b> character in them. IOTAlk will generate a unique tag for the account. The account <b>address</b> will be a combination of the handle and tag and will look similar to an email address, something like <b>myhandle@FJKEJISENRNDKRMTNYJSKWMTNYT</b></p>
                         </li>
                     </ul>
                     
                     <br clear="all" />
-                    <a href="#contactAddModal" role="button" class="btn btn-sm btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
+                    <a href="#contactAddModal" role="button" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
                     <h4>Contacts</h4>
                     <ul id="contactsList" class="userList">
-                        <li>Use the <a href="" class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a> button above to add contacts. Enter a valid IOTAlk address.</li>
+                        <li>Use the <span class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above to add contacts. Enter a valid IOTAlk address.</li>
                     </ul>
                 </div>
             </div>
             <div class="col-md-8">
-                <div class="messages">
+                <div class="scroll messages-section">
                     <ul id="messagesList">
                         <li>Select an Account and a Contact to send a message.</li>
                     </ul>
-                    <div class="sending_message_spinner">
-                        <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> 
-                        <span id="waiting_message">Working...</span>
-                    </div>
                 </div>
-                <div class="messageInput">
+                <div class="fixed message-input">
                     <div class="input-group">
                         <input type="text" class="form-control" id="message" placeholder="">
                         <span class="input-group-addon">
