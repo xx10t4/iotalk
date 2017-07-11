@@ -47,9 +47,12 @@ messageStore.prototype.upsert = function(params) {
     }
 }
 
-
 messageStore.prototype.find = function(query) {
-    return this.messages.find(query)
+    return this.messages.chain().find(query).simplesort("timestamp").data()
+}
+
+messageStore.prototype.remove = function(object) {
+    return this.messages.remove(object)
 }
 
 module.exports = messageStore

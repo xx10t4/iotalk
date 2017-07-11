@@ -66,178 +66,6 @@ $(document).ready(function () {
         })
     }
 
-    var getPublicKey = function(tag, callback) {
-        iota.api.findTransactions({ tags: [tag] }, function (error, result) {
-            if (error) {
-                return callback(error);
-            } else if (result.length == 0) {
-                // handle empty results
-                return callback("no results in findTransactions callback for tag "+ tag);
-            } else {
-                iota.api.getTrytes(result, function (error, trytes) {
-                    if (error) {
-                        return callback(error);
-                    } else {
-                        var transactions = trytes.map(function (transactionTrytes) {
-                            return iota.utils.transactionObject(transactionTrytes);
-                        });
-                        var bundles = sortToBundles(transactions)
-                        var publicKeys = []
-                        Object.keys(bundles).forEach(function(key, idx){
-                            var publicKey = getBundleMessage(bundles[key])
-                            publicKey.address = bundles[key][0].address
-                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
-                                publicKeys.push(publicKey);
-                            } 
-                        })                        
-                        return callback(null, publicKeys);
-                    }
-                });
-            }
-        });
-        iota.api.getNodeInfo(function (error, results) {})
-    }
-
-    var sortToBundles = function(transactions) {
-        bundles = {}
-        for( var i = 0 ; i < transactions.length ; i++) {
-            var transaction = transactions[i]
-            var bundleHash = transaction.bundle
-            if(!bundles[bundleHash]) {
-                bundles[bundleHash] = []
-            }
-            bundles[bundleHash][transaction.currentIndex] = transaction
-
-        }
-        return bundles
-    }
-
-    var getBundleMessage = function(bundle) {
-        var messageTrytes = ''
-        bundle.forEach(function (transaction, idx) {
-            messageTrytes += transaction.signatureMessageFragment;
-        });
-        // kluge to make sure it's an even # of chars for fromTrytes
-        if (messageTrytes.length % 2 > 0) {
-            messageTrytes += '9'
-        }
-        var decodedStr = iota.utils.fromTrytes(messageTrytes);
-        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
-        try {
-            return JSON.parse(jsonStr);
-        } catch(error) {
-            return {error: error.toString()}
-        }
-    }
-
-    function getKeyUsername(publicKey) {
-        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
-    }
-
-    var encrypt = function(message, publicKey) {
-        var encodedMessage = new codec.TextEncoder().encode(message);
-        publicKey = new Uint8Array(publicKey.split(','))
-        encryptedArray = ntru.encrypt(encodedMessage, publicKey);
-        var encoded = ''
-        encryptedArray.forEach(function(num){
-            encoded += String.fromCharCode(num)
-        })
-        return Buffer.from(encoded).toString('base64')
-    }
-
-    var decrypt = function(cipherText, privateKey) {
-        cipherText =  Buffer.from(cipherText, 'base64').toString('utf-8')
-        var decoded = []
-        cipherText.split('').forEach(function(char){
-            decoded.push(char.charCodeAt(0))
-        })
-        var encodedCipher = new Uint8Array(decoded)
-        privateKey = new Uint8Array(privateKey.split(','))
-        try{
-            var encodedMessage = ntru.decrypt(encodedCipher, privateKey);
-            return new codec.TextDecoder().decode(encodedMessage);
-        } catch(error) {
-            return error.toString()
-        }
-    }
-
-    var sendMessage = function(messageText) {
-
-        var messageTo = currentContact
-        var messageFrom = currentAccount
-        var messageFromFingerprint = createPublicKeyFinderprint(messageFrom.publicKey)
-        var message = JSON.stringify({
-            to: messageTo.fingerprint,
-            from: encrypt(messageFromFingerprint, messageTo.publicKey),
-            body: encrypt(messageText, messageTo.publicKey),
-            replyAddress: encrypt(messageFrom.address, messageTo.publicKey)
-        })
-        
-        var transfer = [{
-            'address': messageTo.address,
-            'value': 0,
-            'message': iota.utils.toTrytes(message),
-            'tag': IOTALKMESSAGE_TAG
-        }]
-
-        var localMessage = {
-            text: messageText,
-            to: messageTo.fingerprint,
-            from: messageFromFingerprint,
-            timestamp: new Date(),
-            address: messageTo.address,
-            status: 'sending'
-        }
-    
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
-        messagesStore.insert(localMessage)
-        showMessageList();                
-
-    }
-
-    var getMessages = function(callback) {
-
-        addresses = []
-        for( var i = 0 ; i < localData.accounts.length ; i++) {
-            var address = localData.accounts[i].address
-            if(addresses.indexOf(address) < 0){
-                addresses.push(address)
-            }
-        }
-        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
-            
-            if (error) {
-                return callback(error);
-            } else if (result.length == 0) {
-                // handle empty results
-                return callback("no results in findTransactions callback for tag "+ IOTALKMESSAGE_TAG);
-            } else {
-                iota.api.getTrytes(result, function (error, trytes) {
-                    if (error) {
-                        return callback(error);
-                    } else {
-                        var transactions = trytes.map(function (transactionTrytes) {
-                            return iota.utils.transactionObject(transactionTrytes);
-                        });
-                        var bundles = sortToBundles(transactions)
-                        var messages = []
-                        Object.keys(bundles).forEach(function(bundleHash){
-                            var timestamp = bundles[bundleHash][0].timestamp
-                            if(timestamp) {
-                                timestamp = new Date(timestamp*1000)
-                            }
-                            var message = getBundleMessage(bundles[bundleHash])
-                            message.timestamp = timestamp
-                            messages.push(getBundleMessage(bundles[bundleHash]))
-                        })
-                        return callback(null, messages);
-                    }
-                });
-            }
-        });
-        iota.api.getNodeInfo(function (error, results) {})
-    }
-
     function createAccount(name) {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
             if (error) {
@@ -284,6 +112,147 @@ $(document).ready(function () {
                 saveLocalData();
             }
         })
+    }
+
+    var getPublicKey = function(tag, callback) {
+        iota.api.findTransactions({ tags: [tag] }, function (error, result) {
+            if (error) {
+                return callback(error);
+            } else if (result.length == 0) {
+                // handle empty results
+                return callback("no results in findTransactions callback for tag "+ tag);
+            } else {
+                iota.api.getTrytes(result, function (error, trytes) {
+                    if (error) {
+                        return callback(error);
+                    } else {
+                        var transactions = trytes.map(function (transactionTrytes) {
+                            return iota.utils.transactionObject(transactionTrytes);
+                        });
+                        var bundles = sortToBundles(transactions)
+                        var publicKeys = []
+                        Object.keys(bundles).forEach(function(key, idx){
+                            var publicKey = getBundleMessage(bundles[key])
+                            publicKey.address = bundles[key][0].address
+                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
+                                publicKeys.push(publicKey);
+                            } 
+                        })                        
+                        return callback(null, publicKeys);
+                    }
+                });
+            }
+        });
+        iota.api.getNodeInfo(function (error, results) {})
+    }
+
+    var sendMessage = function(messageText) {
+
+        var messageTo = currentContact
+        var messageFrom = currentAccount
+        var messageFromFingerprint = createPublicKeyFinderprint(messageFrom.publicKey)
+        var message = JSON.stringify({
+            to: messageTo.fingerprint,
+            from: encrypt(messageFromFingerprint, messageTo.publicKey),
+            body: encrypt(messageText, messageTo.publicKey),
+            replyAddress: encrypt(messageFrom.address, messageTo.publicKey)
+        })
+        
+        var transfer = [{
+            'address': messageTo.address,
+            'value': 0,
+            'message': iota.utils.toTrytes(message),
+            'tag': IOTALKMESSAGE_TAG
+        }]
+
+        var localMessage = {
+            text: messageText,
+            to: messageTo.fingerprint,
+            from: messageFromFingerprint,
+            timestamp: dateToTimestamp(),
+            address: messageTo.address,
+            status: 'sending'
+        }
+    
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
+        messagesStore.insert(localMessage)
+        showMessageList();                
+
+    }
+
+    var getMessages = function(callback) {
+
+        addresses = []
+        for( var i = 0 ; i < localData.accounts.length ; i++) {
+            var address = localData.accounts[i].address
+            if(addresses.indexOf(address) < 0){
+                addresses.push(address)
+            }
+        }
+        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
+            
+            if (error) {
+                return callback(error);
+            } else if (result.length == 0) {
+                // handle empty results
+                return callback("no results in findTransactions callback for tag "+ IOTALKMESSAGE_TAG);
+            } else {
+                iota.api.getTrytes(result, function (error, trytes) {
+                    if (error) {
+                        return callback(error);
+                    } else {
+                        var transactions = trytes.map(function (transactionTrytes) {
+                            return iota.utils.transactionObject(transactionTrytes);
+                        });
+                        var bundles = sortToBundles(transactions)
+                        var messages = []
+                        Object.keys(bundles).forEach(function(bundleHash){
+                            var message = getBundleMessage(bundles[bundleHash])
+                            message.timestamp = bundles[bundleHash][0].timestamp
+                            messages.push(message)
+                        })
+                        return callback(null, messages);
+                    }
+                });
+            }
+        });
+        iota.api.getNodeInfo(function (error, results) {})
+    }
+
+    var sortToBundles = function(transactions) {
+        bundles = {}
+        for( var i = 0 ; i < transactions.length ; i++) {
+            var transaction = transactions[i]
+            var bundleHash = transaction.bundle
+            if(!bundles[bundleHash]) {
+                bundles[bundleHash] = []
+            }
+            bundles[bundleHash][transaction.currentIndex] = transaction
+
+        }
+        return bundles
+    }
+
+    var getBundleMessage = function(bundle) {
+        var messageTrytes = ''
+        bundle.forEach(function (transaction, idx) {
+            messageTrytes += transaction.signatureMessageFragment;
+        });
+        // kluge to make sure it's an even # of chars for fromTrytes
+        if (messageTrytes.length % 2 > 0) {
+            messageTrytes += '9'
+        }
+        var decodedStr = iota.utils.fromTrytes(messageTrytes);
+        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
+        try {
+            return JSON.parse(jsonStr);
+        } catch(error) {
+            return {error: error.toString()}
+        }
+    }
+
+    function getKeyUsername(publicKey) {
+        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
     }
 
     function saveLocalData() {
@@ -421,16 +390,15 @@ $(document).ready(function () {
             messages.forEach(function(message){
                 if(message.to){
                     var account = getAccount(message.to)
-                    var replyAddress = decrypt( message.replyAddress, account.privateKey)
-
                     messagesStore.upsert({
                         to: message.to,
                         from: decrypt(message.from, account.privateKey),
-                        text: decrypt(message.body, account.privateKey)
+                        text: decrypt(message.body, account.privateKey),
+                        timestamp: message.timestamp,
+                        address: decrypt( message.replyAddress, account.privateKey)
                     })
                 }
             })
-
         }
     }
 
@@ -561,7 +529,18 @@ $(document).ready(function () {
             var messages = messagesStore.find({
                 from: { '$in' :[accountfingerprint, currentContact.fingerprint]},
                 to: { '$in' :[accountfingerprint, currentContact.fingerprint]}
+           })
+            /*
+            messages = messagesStore.find({
+                 from: { '$in' :[accountfingerprint]}
             })
+            messages.forEach(function (message) {
+                 console.log(JSON.stringify(message))
+               message.timestamp = dateToTimestamp(new Date(message.timestamp))
+                console.log(message.timestamp)
+                messagesStore.update(message)
+            })
+            */
             $('#messagesList').empty()
             messages.forEach(function (message) {
                 var from = message.from === accountfingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
@@ -579,13 +558,6 @@ $(document).ready(function () {
             });
         }
 
-    }
-
-    var formatTimestamp = function(timestamp) {
-        if(timestamp !== undefined) {
-            return new Date(timestamp).toLocaleTimeString().toLowerCase()
-        }
-        return ''
     }
 
     function showWaiting(message) {
@@ -702,5 +674,70 @@ $(document).ready(function () {
         $("#message").val('');
          sendMessage(message)
     })
+
+
+    // Utilities
+    /*
+        Returns a UNIX timestamp - number of seconds since the epoch
+    */
+    var dateToTimestamp = function(date = null) {
+        if(date === null) {
+            date = new Date();
+        }
+        return Math.floor(date.getTime()/1000);
+    }
+
+    /*
+        Convert UNIX timestamp to a Date
+    */
+    var timestampToDate = function(timestamp) {
+        return new Date(timestamp*1000)
+    }
+
+    /*
+        Returns a locale-based string representin a time or date and time
+    */
+    var formatTimestamp = function(timestamp) {
+        if(timestamp !== undefined) {
+            var date = timestampToDate(timestamp)
+            if((new Date().getTime() - date.getTime()) > 1000*3600*12){ 
+                // if more tha 12 hours ago, include date in display
+                return date.toLocaleString().toLowerCase()
+            } else {
+                // otherwise just display the time
+                return date.toLocaleTimeString().toLowerCase()
+            }           
+        }
+        return ''
+    }
+
+    var encrypt = function(message, publicKey) {
+        var encodedMessage = new codec.TextEncoder().encode(message);
+        publicKey = new Uint8Array(publicKey.split(','))
+        encryptedArray = ntru.encrypt(encodedMessage, publicKey);
+        var encoded = ''
+        encryptedArray.forEach(function(num){
+            encoded += String.fromCharCode(num)
+        })
+        return Buffer.from(encoded).toString('base64')
+    }
+
+    var decrypt = function(cipherText, privateKey) {
+        cipherText =  Buffer.from(cipherText, 'base64').toString('utf-8')
+        var decoded = []
+        cipherText.split('').forEach(function(char){
+            decoded.push(char.charCodeAt(0))
+        })
+        var encodedCipher = new Uint8Array(decoded)
+        privateKey = new Uint8Array(privateKey.split(','))
+        try{
+            var encodedMessage = ntru.decrypt(encodedCipher, privateKey);
+            return new codec.TextDecoder().decode(encodedMessage);
+        } catch(error) {
+            return error.toString()
+        }
+    }
+
+
 
 });
