@@ -1,7 +1,7 @@
 var loki = require("lokijs")
 var cryptedFileAdapter = require('../node_modules/lokijs/src/loki-crypted-file-adapter.js');
 
-var messageStore = function(secret, dbFileName) {
+var messageStore = function(secret, dbFileName, callback = null) {
     cryptedFileAdapter.setSecret(secret);
     var self = this
     // implement the autoloadback referenced in loki constructor
@@ -9,6 +9,9 @@ var messageStore = function(secret, dbFileName) {
         self.messages = self.db.getCollection("messages");
         if ( self.messages === null) {
             self.messages = self.db.addCollection("messages");
+        }
+        if(callback) {
+            callback(self)
         }
     }
  

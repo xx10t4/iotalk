@@ -1,5 +1,8 @@
 $(document).ready(function () {
 
+const electron = require('electron')
+// Module to control application life.
+const app = electron.app
     var IOTA = require('iota.lib.js');
     const Crypto = require('crypto.iota.js');
     var ntru = require('ntru');
@@ -8,22 +11,26 @@ $(document).ready(function () {
     var ccurlInterface = require('ccurl.interface.js')
     const path = require("path");
     const MessagesStore = require("./messages.js")
+    const AccountsStore = require("./accounts.js")
+    const ContactsStore = require("./contacts.js")
     //  Instantiate IOTA with provider 'http://localhost:14265'
     var iota = new IOTA({
         'host': 'http://iota1/',
         'port': 14265
     });
 
+    var seed;
     var messagesStore;
+    var accountsStore;
+    var contactsStore;
 
     // global state
-    var seed;
-    var localData = {accounts:[],contacts:[]};
     var currentAccount;
     var currentContact;
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 15;
     var tangleDepth = 4;
+    const MESSAGE_CHECK_FREQUENCY = 30 // seconds
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
@@ -50,7 +57,7 @@ $(document).ready(function () {
             iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
                 if (error) return callback(error, callbackOptions)
 
-                ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
+                ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {                    
                     if (error) return callback(error, callbackOptions)
 
                     iota.api.storeTransactions(attached, function (error, success) {
@@ -58,7 +65,7 @@ $(document).ready(function () {
                     })
                     iota.api.broadcastTransactions(attached, function (error, success) {
                         if (error) return callback(error, callbackOptions);
-                        return callback(null, Object.assign({},success, callbackOptions))
+                         return callback(null, Object.assign({},success, callbackOptions))
                     })
                     iota.api.getNodeInfo(function (error, results) {})
                 })
@@ -89,13 +96,11 @@ $(document).ready(function () {
                     address: address,
                     fingerprint: fingerprint
                 }
-                if (!localData.accounts) {
-                    localData.accounts = [];
-                }
-                localData.accounts.push(account);
+                accountsStore.insert(account);
+
                 var publicKeyMessage = {
                     publicKey: publicKey,
-                    fingerprint: createPublicKeyFinderprint(publicKey),
+                    fingerprint: fingerprint,
                     name: name,
                 }
                 
@@ -109,7 +114,6 @@ $(document).ready(function () {
                 sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
                 $("#submit").toggleClass("disabled");
                 showWaiting("Creating account... this may take a few minutes.");                
-                saveLocalData();
             }
         })
     }
@@ -151,15 +155,21 @@ $(document).ready(function () {
         var messageTo = currentContact
         var messageFrom = currentAccount
         var messageFromFingerprint = createPublicKeyFinderprint(messageFrom.publicKey)
+        /* TODO address cycling
+            - send to the contact's most recent message replyAddress, if there is one, instead of the contact's public key address
+            - create a new address for this message's replyAddress
+        */
+        var address = messageTo.address
+        var replyAddress = messageFrom.address
         var message = JSON.stringify({
             to: messageTo.fingerprint,
             from: encrypt(messageFromFingerprint, messageTo.publicKey),
             body: encrypt(messageText, messageTo.publicKey),
-            replyAddress: encrypt(messageFrom.address, messageTo.publicKey)
+            replyAddress: encrypt(replyAddress, messageTo.publicKey)
         })
         
         var transfer = [{
-            'address': messageTo.address,
+            'address': address,
             'value': 0,
             'message': iota.utils.toTrytes(message),
             'tag': IOTALKMESSAGE_TAG
@@ -170,7 +180,8 @@ $(document).ready(function () {
             to: messageTo.fingerprint,
             from: messageFromFingerprint,
             timestamp: dateToTimestamp(),
-            address: messageTo.address,
+            address: address,
+            replyAddress: replyAddress,
             status: 'sending'
         }
     
@@ -180,17 +191,8 @@ $(document).ready(function () {
 
     }
 
-    var getMessages = function(callback) {
-
-        addresses = []
-        for( var i = 0 ; i < localData.accounts.length ; i++) {
-            var address = localData.accounts[i].address
-            if(addresses.indexOf(address) < 0){
-                addresses.push(address)
-            }
-        }
-        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
-            
+    var getMessages = function(addresses, callback) {
+        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {            
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
@@ -209,6 +211,7 @@ $(document).ready(function () {
                         Object.keys(bundles).forEach(function(bundleHash){
                             var message = getBundleMessage(bundles[bundleHash])
                             message.timestamp = bundles[bundleHash][0].timestamp
+                            message.address = bundles[bundleHash][0].address 
                             messages.push(message)
                         })
                         return callback(null, messages);
@@ -218,6 +221,49 @@ $(document).ready(function () {
         });
         iota.api.getNodeInfo(function (error, results) {})
     }
+
+    /*
+        Returns an array of tangle addresses for inbound messages to any of the accounts
+    */
+    var getInboundMessageAddresses = function() {
+        var addresses = []
+        var fingerprints = []
+        // get addresses associated with account keys
+        accountsStore.all().forEach(function(account) {
+            var address = account.address
+            if(addresses.indexOf(address) < 0){
+                addresses.push(address)
+            }
+            fingerprints.push(account.fingerprint)
+        })
+        var messages = messagesStore.find({
+            from: { '$in' : fingerprints}
+        })
+        messages.forEach(function(message){
+            address = message.replyAddress
+            if(address && (addresses.indexOf(address) < 0)){
+                addresses.push(address)
+            }
+        })
+
+        return addresses 
+     }
+
+    /*
+        Returns an array of tangle addresses for outgoing messages currently in 'sending' state
+    */
+    var getSendingMessagesAddresses = function() {
+        var addresses = []
+        messagesStore.find({
+            status: { '$in' : ['sending','error']}
+        }).forEach(function(message){
+            var address = message.address
+            if(addresses.indexOf(address) < 0){
+                addresses.push(address)
+            }
+        })       
+        return addresses 
+     }
 
     var sortToBundles = function(transactions) {
         bundles = {}
@@ -255,70 +301,37 @@ $(document).ready(function () {
         return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
     }
 
-    function saveLocalData() {
-        var localDataJson = JSON.stringify(localData);
-        fs.writeFile(getLocalDataFileName(), localDataJson, function (err) {
-            if (err) {
-                console.log(err)
-                return err.toString();
-            }
-            showAccountsList();
-            showContactsList();
-        });
-    }
 
-    function loadLocalData(refreshKeys=false) {
-        var fileName = getLocalDataFileName();
-        if (fs.existsSync(fileName)) {
-            fs.readFile(fileName, function (err, contents) {
-                if (err) {
-                    console.log(err)
-                    return err.toString();
-                }
-                localData = JSON.parse(contents);
-                if(refreshKeys) {
-                    refreshAccountKeys();
-                    refreshContactKeys();
-                }
-                showAccountsList();
-                showContactsList();
-                getMessages(getMessagesResultsHandler);
-            });
-        }
-    }
-
-    var refreshAccountKeys = function() {         
-        localData.accounts.forEach(function (account, idx) {           
+    var refreshAccountKeys = function() {
+        accountsStore.all().forEach(function (account, idx) {           
             getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
                 var errorMsg = checkUser(error, publicKeys, account)
                 if(errorMsg) {
                     account.error = errorMsg
-                    localData.accounts[idx] = account
-                    saveLocalData()
+                    accountsStore.update(account)
                 }
             })
         })
-        if(localData.accounts.length == 1) {
-            getPublicKey(getPublicKeyTag(localData.accounts[0].publicKey), function(error, publicKey){
+        if(accountsStore.all().length == 1) {
+            getPublicKey(getPublicKeyTag(accountsStore.all()[0].publicKey), function(error, publicKey){
                 // only called because of request bug that hangs sometimes
             })
         }
     }
 
     var refreshContactKeys = function() {         
-        localData.contacts.forEach(function (contact, idx) {           
+        contactsStore.all().forEach(function (contact, idx) {           
             getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
                 var errorMsg = checkUser(error, publicKeys, contact)                    
                 if(errorMsg) {
                     console.log(errorMsg)
                     contact.error = errorMsg
-                    localData.contacts[idx] = contact
-                    saveLocalData()
+                    contactsStore.update(contact) 
                 }
             })
         })
-        if(localData.contacts.length == 1) {
-            getPublicKey(getPublicKeyTag( localData.contacts[0].publicKey), function(error, publicKey){
+        if( contactsStore.all().length == 1) {
+            getPublicKey(getPublicKeyTag(  contactsStore.all()[0].publicKey), function(error, publicKey){
                 // only called because of request bug that hangs sometimes
             })
         }
@@ -377,26 +390,61 @@ $(document).ready(function () {
             }
         }
         messagesStore.update(results.message)
-                        console.log("sendMessageResultsHandler after update: "+JSON.stringify(results.message))
-
+        console.log("sendMessageResultsHandler after update: "+JSON.stringify(results.message))
         showMessageList()
     }
 
     var getMessagesResultsHandler = function(error, messages) {
-
+        console.log("getMessagesResultsHandler")
         if(error) {
             console.log("in handler error:  " +error)
         } else {
             messages.forEach(function(message){
                 if(message.to){
                     var account = getAccount(message.to)
-                    messagesStore.upsert({
-                        to: message.to,
-                        from: decrypt(message.from, account.privateKey),
-                        text: decrypt(message.body, account.privateKey),
-                        timestamp: message.timestamp,
-                        address: decrypt( message.replyAddress, account.privateKey)
-                    })
+                    if(account) {
+                        messagesStore.upsert({
+                            to: message.to,
+                            timestamp: message.timestamp,
+                            address: message.address,
+                            from: decrypt(message.from, account.privateKey),
+                            text: decrypt(message.body, account.privateKey),
+                            replyAddress: decrypt( message.replyAddress, account.privateKey)
+                        })
+                    } else {
+                        console.log("retrieved message for unknown account: "+JSON.stringify(message))
+                    }
+                }
+            })
+        }
+    }
+
+    /*
+        Handles messages that may be stuck in 'sending' or 'error' states
+    */
+    var getSendingMessagesResultsHandler = function(error, messages) {
+        console.log("getSendingMessagesResultsHandler")
+        if(error) {
+            console.log("in handler error:  " +error)
+        } else {
+            messages.forEach(function(message){
+                if(message.to){
+                    var contact = getContact(message.to)
+                    if(contact) {
+                        messagesStore.find({
+                            to: message.to,
+                            status: { '$in' : ['sending','error']}
+                        }).forEach(function(storedMessage){
+                            var encrypted_text = encrypt(storedMessage.text, contact.publicKey)
+                            var encrypted_from = encrypt(storedMessage.from, contact.publicKey)
+                            if(encrypted_text === message.body && encrypted_from === message.from) {
+                                storedMessage.status = 'sent'
+                                messagesStore.update(storedMessage)
+                            }
+                        })
+                    } else {
+                        console.log("retrieved message for unknown contact: "+JSON.stringify(message))
+                    }
                 }
             })
         }
@@ -405,54 +453,33 @@ $(document).ready(function () {
     var addContactResultHandler = function(error, publicKeys) {
 
         publicKeys.forEach(function(publicKey){
-            if (!localData.contacts) {
-                localData.contacts = [];
-            }
-            var exists = false;
-            for(var i = 0; i < localData.contacts.length ; i++){
-                if(localData.contacts[i].publicKey === publicKey.publicKey){
-                    exists = true;
-                    break;
-                }
-            }
-            if(!exists){
-                localData.contacts.push(publicKey);
+            var exists = contactsStore.find({
+                publicKey: publicKey.publicKey
+            })
+            if(exists.length === 0){
+                 contactsStore.insert(publicKey);
             }                   
         })
-        saveLocalData(true);
     }
 
     var getAccount = function(tagOrFingerprint) {
-        var func
-        if(tagOrFingerprint.length == 27){
-            func = getPublicKeyTag
-        } else {
-            func = createPublicKeyFinderprint
+        var found = accountsStore.find({
+            fingerprint: { '$regex': tagOrFingerprint }
+        })
+        if(found.length !== 1){
+            console.log("warning: found "+found.length+" accounts for "+tagOrFingerprint)
         }
-        for(var i = 0 ; i < localData.accounts.length ; i++) {
-            var account = localData.accounts[i]
-            var accountTag = func(account.publicKey) 
-            if(accountTag === tagOrFingerprint) {
-               return account 
-            }
-        }
-        return null
+        return found[0]
     }
 
     var getContact = function(tagOrFingerprint) {
-        var tag = tagOrFingerprint.substr(0,27)
-        for(var i = 0 ; i < localData.contacts.length ; i++) {
-            var contact = localData.contacts[i]
-            var contactTag = getPublicKeyTag(contact.publicKey)
-            if(contactTag === tag) {
-                return contact
-            }
+        var found = contactsStore.find({
+            fingerprint: { '$regex': tagOrFingerprint }
+        })
+        if(found.length !== 1){
+            console.log("warning: found "+found.length+" contacts for "+tagOrFingerprint)
         }
-        return null
-    }
-
-    var getLocalDataFileName = function() {
-        return window.appRoot + "/data/" + seed.substr(0, 6) + ".json"
+        return found[0]
     }
 
     var createKeyPair = function() {
@@ -494,13 +521,14 @@ $(document).ready(function () {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
-        loadLocalData(true);
+        setDateStores()
     }
 
     var showAccountsList = function () {
-        if (localData.accounts && localData.accounts.length > 0) {
+        var accounts = accountsStore.all()
+        if (accounts && accounts.length > 0) {
             $('#accountsList').empty()
-            localData.accounts.forEach(function (account) {
+            accounts.forEach(function (account) {
                 if(!account.error) {
                     var tag = getPublicKeyTag(account.publicKey)
                     var userName = getKeyUsername(account) 
@@ -511,9 +539,10 @@ $(document).ready(function () {
     }
 
     var showContactsList = function() {
-        if(localData.contacts && localData.contacts.length > 0) {
+        var contacts = contactsStore.all()
+        if(contacts && contacts.length > 0) {
             $('#contactsList').empty()
-            localData.contacts.forEach(function (contact) {
+            contacts.forEach(function (contact) {
                 if(!contact.error) {
                     var tag = getPublicKeyTag(contact.publicKey)
                     var userName = getKeyUsername(contact) 
@@ -535,10 +564,9 @@ $(document).ready(function () {
                  from: { '$in' :[accountfingerprint]}
             })
             messages.forEach(function (message) {
-                 console.log(JSON.stringify(message))
-               message.timestamp = dateToTimestamp(new Date(message.timestamp))
-                console.log(message.timestamp)
-                messagesStore.update(message)
+                message.replyAddress = message.address
+                console.log(JSON.stringify(message))
+               messagesStore.update(message)
             })
             */
             $('#messagesList').empty()
@@ -580,7 +608,7 @@ $(document).ready(function () {
 
     }
 
-    function validateSeed(value) {
+    var validateSeed = function(value) {
         var result = { "valid": true, "message": "" }
         if (!value || value == "") {
             result["message"] = "Seed cannot be blank"
@@ -594,7 +622,7 @@ $(document).ready(function () {
     //
     // Properly formats the seed, replacing all non-latin chars with 9's
     //
-    function setSeed(value) {
+    var setSeed = function(value) {
         seed = "";
         value = value.toUpperCase();
         for (var i = 0; i < value.length; i++) {
@@ -606,7 +634,7 @@ $(document).ready(function () {
         }
     }
 
-    function setMessagesStore() {
+    var setDateStores = function() {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1, index: 0 }, function (error, addresses) {
             if (error) {
                 console.log(error);
@@ -616,11 +644,27 @@ $(document).ready(function () {
                     return;
                 }
                 var address = addresses[0];
-                messagesStore = new MessagesStore(seed, address+'.data')
+                messagesStore = new MessagesStore(seed, createDatastoreFilename('messages', address), function(){
+                    accountsStore = new AccountsStore(seed, createDatastoreFilename('accounts', address), function(){
+                        contactsStore = new ContactsStore(seed, createDatastoreFilename('contacts', address), function(){
+                            showAccountsList();
+                            showContactsList();
+                            checkForNewMessages();
+                        })
+                   })                
+                })              
             }
         })       
     }
 
+    var createDatastoreFilename = function(type, address) {
+        return path.join(electron.remote.app.getPath('userData'), address + '.' + type + '.data');
+    }
+
+    var checkForNewMessages = function () {
+        getMessages(getInboundMessageAddresses(),getMessagesResultsHandler)
+        setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
+    }
 
     // Event handlers
 
@@ -634,7 +678,6 @@ $(document).ready(function () {
         $("#login-message").addClass("hidden");
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
-        setMessagesStore()
         showMessenger();
     });
 
@@ -664,7 +707,6 @@ $(document).ready(function () {
         var username = $(this).prev().val()
         currentAccount = getAccount(username.split('@')[1])
         showMessageList();
-        console.log("currentAccount: "+currentAccount)
         $('#accountsList label').removeClass("current")   
         $(this).addClass("current")
     });
