@@ -11,3 +11,17 @@ Sam wants to communicate with Roberta.
 Sam retrieves Roberta's public key from the address and creates a new transaction to Roberta's address with a message encrypted using her public key. The message contains the address of Sam's public key. Assuming this address is different than the address that Sam used to create the transaction, then there is no public connection between their two public keys.
 
 Roberta retrieves the message and create
+
+
+
+
+
+
+TODO:
+- node config in UI
+- remove contacts
+- remove accounts
+- remove messages
+- resend errored messages
+- login screen
+- logout

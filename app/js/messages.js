@@ -1,5 +1,5 @@
 var loki = require("lokijs")
-var cryptedFileAdapter = require('../node_modules/lokijs/src/loki-crypted-file-adapter.js');
+var cryptedFileAdapter = require('../../node_modules/lokijs/src/loki-crypted-file-adapter.js');
 
 var messageStore = function(secret, dbFileName, callback = null) {
     cryptedFileAdapter.setSecret(secret);

@@ -1,19 +1,19 @@
 {
   "name": "IOTa1k",
   "version": "0.1.0",
-  "description": "IOTA based messengin app",
-  "main": "main.js",
+  "description": "IOTA based messenging app",
+  "main": "app/js/main.js",
   "scripts": {
     "start": "export NODE_ENV=development || set NODE_ENV=development && electron ."
   },
-  "repository": "https://github.com/electron/electron-quick-start",
+  "repository": "https://github.com/xx10t4/iota1k",
   "keywords": [
     "IOTa1k",
     "iota",
     "messenger",
     "tangle"
   ],
-  "author": "GitHub",
+  "author": "xx10t4",
   "license": "CC0-1.0",
   "dependencies": {
     "crypto.iota.js": "~0.0.4",

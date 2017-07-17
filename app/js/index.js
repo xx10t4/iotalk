@@ -1,20 +1,19 @@
 $(document).ready(function () {
 
-const electron = require('electron')
-// Module to control application life.
-const app = electron.app
-    var IOTA = require('iota.lib.js');
+    const electron = require('electron')
+    const app = electron.app
+    const IOTA = require('iota.lib.js');
     const Crypto = require('crypto.iota.js');
-    var ntru = require('ntru');
-    var fs = require("fs");
-    var codec = require('text-encoding');
-    var ccurlInterface = require('ccurl.interface.js')
+    const ccurlInterface = require('ccurl.interface.js')
+    const ntru = require('ntru');
+    const fs = require("fs");
+    const codec = require('text-encoding');
     const path = require("path");
     const MessagesStore = require("./messages.js")
     const AccountsStore = require("./accounts.js")
     const ContactsStore = require("./contacts.js")
     //  Instantiate IOTA with provider 'http://localhost:14265'
-    var iota = new IOTA({
+    const iota = new IOTA({
         'host': 'http://iota1/',
         'port': 14265
     });
@@ -524,6 +523,19 @@ const app = electron.app
         setDateStores()
     }
 
+    function showLogin(message = "") {
+        $("#login-message").html(message);
+        if (message = "") {
+            $("#login-message").addClass("hidden");
+        } else {
+            $("#login-message").removeClass("hidden");
+        }
+        $(".login_section").removeClass("hidden");
+        $(".messenger_section").addClass("hidden");
+        $(".waiting_section").addClass("hidden");
+
+    }
+
     var showAccountsList = function () {
         var accounts = accountsStore.all()
         if (accounts && accounts.length > 0) {
@@ -593,19 +605,6 @@ const app = electron.app
         $(".messenger_section").addClass("hidden");
         $(".waiting_section").removeClass("hidden");
         $("#waiting_message").html(message);
-    }
-
-    function showLogin(message = "") {
-        $("#login-message").html(message);
-        if (message = "") {
-            $("#login-message").addClass("hidden");
-        } else {
-            $("#login-message").removeClass("hidden");
-        }
-        $(".login_section").removeClass("hidden");
-        $(".messenger_section").addClass("hidden");
-        $(".waiting_section").addClass("hidden");
-
     }
 
     var validateSeed = function(value) {
@@ -679,6 +678,11 @@ const app = electron.app
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
         setSeed(seed_);
         showMessenger();
+    });
+
+    $("#logoutBtn").on("click", function () {
+        setSeed('');
+        showLogin();
     });
 
     $("#add_contact").on("click", function () {
@@ -765,9 +769,9 @@ const app = electron.app
     }
 
     var decrypt = function(cipherText, privateKey) {
-        cipherText =  Buffer.from(cipherText, 'base64').toString('utf-8')
+        var cipherTextUtf8 =  Buffer.from(cipherText, 'base64').toString('utf-8')
         var decoded = []
-        cipherText.split('').forEach(function(char){
+        cipherTextUtf8.split('').forEach(function(char){
             decoded.push(char.charCodeAt(0))
         })
         var encodedCipher = new Uint8Array(decoded)
@@ -779,7 +783,5 @@ const app = electron.app
             return error.toString()
         }
     }
-
-
 
 });

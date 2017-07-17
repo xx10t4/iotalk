@@ -41,9 +41,24 @@ html {
     display: table-row;
 }
 
-.col-md-4, .col-md-8 {
+.col-md-2, .col-md-4, .col-md-8 {
     height: 100%;
 
+}
+
+.toolbar {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 30px;
+  border-bottom: solid 1px #dddddd;
+  text-align: right;
+  padding: 5px;
+}
+
+#logoutBtn {
+  padding-right: 10px;
 }
 
 .scroll {
@@ -55,7 +70,11 @@ html {
   overflow-y: auto;
 }
 
-.fixed {
+.messages-section {
+  top: 30px;
+}
+
+.fixed-bottom {
   position:absolute;
   top: 100%;
   left: 0px;

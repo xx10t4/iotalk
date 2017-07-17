@@ -7,14 +7,16 @@
 
     <title>IOTA1k</title>
 
-    <link href="./node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="css/style.css" rel="stylesheet">
+    <link href="../../node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../css/style.css" rel="stylesheet">
 </head>
 <body>
 
-    <section class="login_section">
+    <section class="login_section container">
         <div class="row">
-            <div class="col-xs-12">
+            <div class="col-md-2">
+            </div>
+            <div class="col-md-8">
                 <div id="login-message" class="hidden"> </div>
                 <div class="form-group">
                     <select name="userSeed" id="userSeed">
@@ -23,10 +25,12 @@
                         <option>BOGUS</option>
                     </select>
                 </div>
+                <div class="login_button">
+                    <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
+                </div>                       
             </div>
-            <div class="login_button">
-                <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
-            </div>                       
+            <div class="col-md-2">
+            </div>
         </div>      
     </section>
 
@@ -52,12 +56,15 @@
                 </div>
             </div>
             <div class="col-md-8">
+                <div class="toolbar">
+                    <a href="" id="logoutBtn"><span class="glyphicon glyphicon-log-out" rel="tooltip" title="Log out" ></span></a>
+                </div>
                 <div class="scroll messages-section">
                     <ul id="messagesList">
                         <li>Select an Account and a Contact to send a message.</li>
                     </ul>
                 </div>
-                <div class="fixed message-input">
+                <div class="fixed-bottom message-input">
                     <div class="input-group">
                         <input type="text" class="form-control" id="message" placeholder="">
                         <span class="input-group-addon">
@@ -121,6 +128,6 @@
   </body>
 </html>
   <script>
-    require('./renderer.js')
+    require('../js/renderer.js')
   </script>
 

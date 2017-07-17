@@ -3,8 +3,8 @@
 // All of the Node.js APIs are available in this process.
 var path = require('path');
 
-window.appRoot = path.resolve(__dirname);
+window.appRoot = path.resolve(path.join(__dirname,'../'));
 
 window.$ = window.jQuery = require('jquery');
-require("./js/index.js");
+require("./index.js");
 require("bootstrap")
