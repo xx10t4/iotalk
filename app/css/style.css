@@ -134,6 +134,12 @@ html {
   width: 100%;
 }
 
+.users-section li span.glyphicon {
+  display: inline-block;
+  padding: 6px 12px;
+  margin-bottom: 5px;
+}
+
 .users-section label.current {
   background-color: #04a997;
   color: #ffffff;

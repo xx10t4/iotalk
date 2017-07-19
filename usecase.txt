@@ -24,4 +24,4 @@ TODO:
 - remove messages
 - resend errored messages
 - login screen
-- logout
+- autoscroll messages

@@ -14,7 +14,9 @@ $(document).ready(function () {
     const ContactsStore = require("./contacts.js")
     //  Instantiate IOTA with provider 'http://localhost:14265'
     const iota = new IOTA({
-        'host': 'http://iota1/',
+        //'host': 'http://iota.bitfinex.com',
+        'host': 'http://5.9.137.199',
+        //'host': 'http://iota1',
         'port': 14265
     });
 
@@ -93,7 +95,8 @@ $(document).ready(function () {
                     publicKey: publicKey,
                     name: name,
                     address: address,
-                    fingerprint: fingerprint
+                    fingerprint: fingerprint, 
+                    status: 'sending'
                 }
                 accountsStore.insert(account);
 
@@ -111,27 +114,30 @@ $(document).ready(function () {
                 }]
             
                 sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
-                $("#submit").toggleClass("disabled");
-                showWaiting("Creating account... this may take a few minutes.");                
+                showAccountsList();                
             }
         })
     }
 
     var getPublicKey = function(tag, callback) {
         iota.api.findTransactions({ tags: [tag] }, function (error, result) {
+        
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
                 // handle empty results
                 return callback("no results in findTransactions callback for tag "+ tag);
             } else {
+        
                 iota.api.getTrytes(result, function (error, trytes) {
+        
                     if (error) {
                         return callback(error);
                     } else {
                         var transactions = trytes.map(function (transactionTrytes) {
                             return iota.utils.transactionObject(transactionTrytes);
                         });
+                        
                         var bundles = sortToBundles(transactions)
                         var publicKeys = []
                         Object.keys(bundles).forEach(function(key, idx){
@@ -183,9 +189,9 @@ $(document).ready(function () {
             replyAddress: replyAddress,
             status: 'sending'
         }
+        messagesStore.insert(localMessage)
     
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
-        messagesStore.insert(localMessage)
         showMessageList();                
 
     }
@@ -306,9 +312,16 @@ $(document).ready(function () {
             getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
                 var errorMsg = checkUser(error, publicKeys, account)
                 if(errorMsg) {
-                    account.error = errorMsg
-                    accountsStore.update(account)
+                    console.log(errorMsg)
+                    account.status = 'error'
+                    account.errorMessage = errorMsg
+                } else {
+                    console.log("account.name: "+account.name)
+                    
+                    account.status = 'created'
                 }
+                accountsStore.update(account)
+                showAccountsList()
             })
         })
         if(accountsStore.all().length == 1) {
@@ -346,7 +359,7 @@ $(document).ready(function () {
         if(publicKeys.length > 1) { 
             return "getPublicKey returned "+publicKeys.length+" publicKeys!"
         }
-        if(publicKeys[0].fingerprint != createPublicKeyFinderprint(user.publicKey)) { 
+        if(publicKeys[0].fingerprint != user.fingerprint) { 
             return "getPublicKey returned a key with a different fingerprint"
         }
         return false
@@ -356,22 +369,22 @@ $(document).ready(function () {
         UI handler callbacks
     */
     var addAccountResultsHandler = function(error, results) {
-        showMessenger();
         if (error) {
-
-            var html = '<div class="alert alert-danger alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>ERROR!</strong>' + error + '.</div>'
-            $("#send__success").html(JSON.stringify(error));
-
-            $("#submit").toggleClass("disabled");
-
-            $("#send__waiting").css("display", "none");
-
+            console.log("addAccountResultsHandler error: "+JSON.stringify(error))
+            if(results && results.account) {
+                results.account.status = 'error'
+                console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
+                results.message.errorMessage = 'error'
+            }
         } else {
-
-            var html = '<div class="alert alert-info alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button><strong>Success!</strong> You have successfully sentmessage.</div>'
-            $("#send__success").html(html);
-
+            if(results && results.account) {
+                console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
+                results.account.status = 'created'
+            }
         }
+        accountsStore.update(results.account)
+        console.log("addAccountResultsHandler after update: "+JSON.stringify(results.account))
+        showAccountsList()
     }
 
     var sendMessageResultsHandler = function(error, results) {          
@@ -393,23 +406,28 @@ $(document).ready(function () {
         showMessageList()
     }
 
-    var getMessagesResultsHandler = function(error, messages) {
-        console.log("getMessagesResultsHandler")
+    var getInboundMessagesResultsHandler = function(error, messages) {
+        console.log("getInboundMessagesResultsHandler")
         if(error) {
             console.log("in handler error:  " +error)
         } else {
             messages.forEach(function(message){
                 if(message.to){
                     var account = getAccount(message.to)
-                    if(account) {
-                        messagesStore.upsert({
-                            to: message.to,
-                            timestamp: message.timestamp,
-                            address: message.address,
-                            from: decrypt(message.from, account.privateKey),
-                            text: decrypt(message.body, account.privateKey),
-                            replyAddress: decrypt( message.replyAddress, account.privateKey)
-                        })
+                    if(account) {                
+                        var from = decrypt(message.from, account.privateKey).text
+                        var text = decrypt(message.body, account.privateKey).text
+                        var replyAddress = decrypt(message.replyAddress, account.privateKey).text
+                        if(from !== undefined && text !== undefined && replyAddress !== undefined) {
+                            messagesStore.upsert({
+                                to: message.to,
+                                timestamp: message.timestamp,
+                                address: message.address,
+                                from: from,
+                                text: text,
+                                replyAddress: replyAddress
+                            })
+                        }
                     } else {
                         console.log("retrieved message for unknown account: "+JSON.stringify(message))
                     }
@@ -450,15 +468,19 @@ $(document).ready(function () {
     }
 
     var addContactResultHandler = function(error, publicKeys) {
-
-        publicKeys.forEach(function(publicKey){
-            var exists = contactsStore.find({
-                publicKey: publicKey.publicKey
-            })
-            if(exists.length === 0){
-                 contactsStore.insert(publicKey);
-            }                   
-        })
+        if(error) {
+            console.log("error: "+error)
+        } else {
+            publicKeys.forEach(function(publicKey){
+                var exists = contactsStore.find({
+                    publicKey: publicKey.publicKey
+                })
+                if(exists.length === 0){
+                    contactsStore.insert(publicKey);
+                } 
+                showContactsList()                  
+            })           
+        }
     }
 
     var getAccount = function(tagOrFingerprint) {
@@ -520,7 +542,8 @@ $(document).ready(function () {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
-        setDateStores()
+        setDataStores()
+
     }
 
     function showLogin(message = "") {
@@ -541,11 +564,15 @@ $(document).ready(function () {
         if (accounts && accounts.length > 0) {
             $('#accountsList').empty()
             accounts.forEach(function (account) {
-                if(!account.error) {
-                    var tag = getPublicKeyTag(account.publicKey)
-                    var userName = getKeyUsername(account) 
-                    $('#accountsList').append('<li id="'+ tag +'"><input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label for="fromAddress'+ tag + '">' + userName + '</li>')
+                var tag = getPublicKeyTag(account.publicKey)
+                var userName = getKeyUsername(account) 
+                var item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + '</label>'
+                if(account.status === 'sending') {
+                    item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>creating  account <b>'+account.name + '</b>...</span>'
+                } else if (account.status === 'error') {
+                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>account <b>'+account.name + '</b> has an error</span>'
                 }
+                $('#accountsList').append('<li id="'+ tag +'">' + item + '</li>')
             });
         }
     }
@@ -633,7 +660,7 @@ $(document).ready(function () {
         }
     }
 
-    var setDateStores = function() {
+    var setDataStores = function() {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1, index: 0 }, function (error, addresses) {
             if (error) {
                 console.log(error);
@@ -646,7 +673,8 @@ $(document).ready(function () {
                 messagesStore = new MessagesStore(seed, createDatastoreFilename('messages', address), function(){
                     accountsStore = new AccountsStore(seed, createDatastoreFilename('accounts', address), function(){
                         contactsStore = new ContactsStore(seed, createDatastoreFilename('contacts', address), function(){
-                            showAccountsList();
+                            refreshAccountKeys()
+                            showAccountsList()
                             showContactsList();
                             checkForNewMessages();
                         })
@@ -661,7 +689,7 @@ $(document).ready(function () {
     }
 
     var checkForNewMessages = function () {
-        getMessages(getInboundMessageAddresses(),getMessagesResultsHandler)
+        getMessages(getInboundMessageAddresses(),getInboundMessagesResultsHandler)
         setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
     }
 
@@ -778,9 +806,9 @@ $(document).ready(function () {
         privateKey = new Uint8Array(privateKey.split(','))
         try{
             var encodedMessage = ntru.decrypt(encodedCipher, privateKey);
-            return new codec.TextDecoder().decode(encodedMessage);
+            return {text: new codec.TextDecoder().decode(encodedMessage)};
         } catch(error) {
-            return error.toString()
+            return {error: error.toString()}
         }
     }
 
