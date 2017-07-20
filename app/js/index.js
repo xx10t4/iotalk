@@ -34,6 +34,14 @@ $(document).ready(function () {
     const MESSAGE_CHECK_FREQUENCY = 30 // seconds
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
+    // status codes for account and contact public keys
+    const PUBLICKEY_STATUS_OK = 'ok'
+    const PUBLICKEY_STATUS_NOT_FOUND = 'not_found'
+    const PUBLICKEY_STATUS_MULTIPLE_FOUND = 'multiple_found'
+    const PUBLICKEY_STATUS_ERROR = 'error'
+    const PUBLICKEY_STATUS_BAD_FINGERPRINT = 'bad_fingerprint'
+    const PUBLICKEY_STATUS_SENDING = 'sending'
+
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
 
         // Validity check for number of arguments
@@ -96,27 +104,34 @@ $(document).ready(function () {
                     name: name,
                     address: address,
                     fingerprint: fingerprint, 
-                    status: 'sending'
                 }
                 accountsStore.insert(account);
-
-                var publicKeyMessage = {
-                    publicKey: publicKey,
-                    fingerprint: fingerprint,
-                    name: name,
-                }
-                
-                var transfer = [{
-                    'address': address,
-                    'value': parseInt(value),
-                    'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
-                    'tag': getPublicKeyTag(publicKeyMessage.publicKey)
-                }]
-            
-                sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
-                showAccountsList();                
+                sendAccount(account)
             }
         })
+    }
+
+    /*
+        creates a tangle transaction bundle to publish an account public key
+    */
+    var sendAccount = function(account) {
+        var publicKeyMessage = {
+            publicKey: account.publicKey,
+            fingerprint: account.fingerprint,
+            name: account.name,
+        }
+        
+        var transfer = [{
+            'address': account.address,
+            'value': parseInt(value),
+            'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
+            'tag': getPublicKeyTag(publicKeyMessage.publicKey)
+        }]
+    
+        account.status = PUBLICKEY_STATUS_SENDING
+        accountsStore.update(account)
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
+        showAccountsList();                
     }
 
     var getPublicKey = function(tag, callback) {
@@ -125,8 +140,7 @@ $(document).ready(function () {
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
-                // handle empty results
-                return callback("no results in findTransactions callback for tag "+ tag);
+                return callback({status: PUBLICKEY_STATUS_NOT_FOUND});
             } else {
         
                 iota.api.getTrytes(result, function (error, trytes) {
@@ -310,16 +324,7 @@ $(document).ready(function () {
     var refreshAccountKeys = function() {
         accountsStore.all().forEach(function (account, idx) {           
             getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
-                var errorMsg = checkUser(error, publicKeys, account)
-                if(errorMsg) {
-                    console.log(errorMsg)
-                    account.status = 'error'
-                    account.errorMessage = errorMsg
-                } else {
-                    console.log("account.name: "+account.name)
-                    
-                    account.status = 'created'
-                }
+                setStatus(error, publicKeys, account)
                 accountsStore.update(account)
                 showAccountsList()
             })
@@ -334,12 +339,9 @@ $(document).ready(function () {
     var refreshContactKeys = function() {         
         contactsStore.all().forEach(function (contact, idx) {           
             getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
-                var errorMsg = checkUser(error, publicKeys, contact)                    
-                if(errorMsg) {
-                    console.log(errorMsg)
-                    contact.error = errorMsg
-                    contactsStore.update(contact) 
-                }
+                setStatus(error, publicKeys, contact)                    
+                contactsStore.update(contact)
+                showContactsList() 
             })
         })
         if( contactsStore.all().length == 1) {
@@ -349,20 +351,30 @@ $(document).ready(function () {
         }
     }
 
-    var checkUser = function(error, publicKeys, user) {
+    /* 
+        set status and statusMessage on contact or account record
+    */
+    var setStatus = function(error, publicKeys, user) {
+        user.status = PUBLICKEY_STATUS_OK
+        user.statusMessage = ''
         if(error) {
-            return "Error getting publicKey key: "+error.toString()
+            if(error.status !== undefined){
+                user.status = error.status
+            } else {
+                user.status = PUBLICKEY_STATUS_ERROR
+                user.statusMessage = error.toString()
+            }
+        } else {
+            if(publicKeys.length < 1) { 
+                user.status = PUBLICKEY_STATUS_NOT_FOUND
+            }
+            if(publicKeys.length > 1) { 
+                user.status = PUBLICKEY_STATUS_MULTIPLE_FOUND
+            }
+            if(publicKeys[0].fingerprint != user.fingerprint) { 
+                user.status = PUBLICKEY_STATUS_BAD_FINGERPRINT
+            }
         } 
-        if(publicKeys.length < 1) { 
-            return "getPublicKey returned "+publicKeys.length+" publicKeys"
-        }
-        if(publicKeys.length > 1) { 
-            return "getPublicKey returned "+publicKeys.length+" publicKeys!"
-        }
-        if(publicKeys[0].fingerprint != user.fingerprint) { 
-            return "getPublicKey returned a key with a different fingerprint"
-        }
-        return false
     }
 
     /*
@@ -372,14 +384,14 @@ $(document).ready(function () {
         if (error) {
             console.log("addAccountResultsHandler error: "+JSON.stringify(error))
             if(results && results.account) {
-                results.account.status = 'error'
+                results.account.status = PUBLICKEY_STATUS_ERROR
                 console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
-                results.message.errorMessage = 'error'
+                results.message.errorMessage = error.toString()
             }
         } else {
             if(results && results.account) {
                 console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
-                results.account.status = 'created'
+                results.account.status = PUBLICKEY_STATUS_OK
             }
         }
         accountsStore.update(results.account)
@@ -566,11 +578,15 @@ $(document).ready(function () {
             accounts.forEach(function (account) {
                 var tag = getPublicKeyTag(account.publicKey)
                 var userName = getKeyUsername(account) 
-                var item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + '</label>'
-                if(account.status === 'sending') {
-                    item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>creating  account <b>'+account.name + '</b>...</span>'
-                } else if (account.status === 'error') {
-                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>account <b>'+account.name + '</b> has an error</span>'
+                var item
+                if(account.status === PUBLICKEY_STATUS_OK) {
+                    item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + '</label>'
+                } else if(account.status === PUBLICKEY_STATUS_SENDING) {
+                    item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
+                } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
+                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> not found. <input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
+                } else {
+                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> has a problem: '+account.status+'</span>'
                 }
                 $('#accountsList').append('<li id="'+ tag +'">' + item + '</li>')
             });
@@ -743,6 +759,13 @@ $(document).ready(function () {
         $(this).addClass("current")
     });
 
+    $('#accountsList').on('click','button.retry',function() {
+        var username = $(this).prev().val()
+        currentAccount = getAccount(username.split('@')[1])
+        sendAccount(currentAccount)
+        showMessageList();
+    });
+    
     $("#send_message").on("click", function () {
         var message = $("#message").val();
         $("#message").val('');

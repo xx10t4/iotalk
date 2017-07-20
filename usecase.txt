@@ -25,3 +25,4 @@ TODO:
 - resend errored messages
 - login screen
 - autoscroll messages
+- limit message length

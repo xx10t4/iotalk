@@ -114,11 +114,14 @@ html {
 }
 
 .users-section .btn-xs {
-  margin:8px 0 10px;
   color: #5D939B;
   border-color: #5D939B;
-  border-radius: 12px;
   background-color: #123d43;
+}
+
+.users-section .add-user.btn-xs {
+  margin:8px 0 10px;
+  border-radius: 12px;
 }
 
 .users-section a.btn-xs {
@@ -134,9 +137,13 @@ html {
   width: 100%;
 }
 
-.users-section li span.glyphicon {
+.users-section li > span.glyphicon {
+  margin: 0 0 5px 12px;
+}
+
+.users-section li > span.status {
   display: inline-block;
-  padding: 6px 12px;
+  padding: 6px 0px 6px 3px;
   margin-bottom: 5px;
 }
 
