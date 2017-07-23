@@ -57,16 +57,17 @@
             </div>
             <div class="col-md-8">
                 <div class="toolbar">
+                    <a href="#configurationModal" data-toggle="modal"><span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span></a>
                     <a href="" id="logoutBtn"><span class="glyphicon glyphicon-log-out" rel="tooltip" title="Log out" ></span></a>
                 </div>
-                <div class="scroll messages-section">
+                <div id="messageScroll" class="scroll messages-section">
                     <ul id="messagesList">
                         <li>Select an Account and a Contact to send a message.</li>
                     </ul>
                 </div>
                 <div class="fixed-bottom message-input">
                     <div class="input-group">
-                        <input type="text" class="form-control" id="message" placeholder="">
+                        <input type="text" class="form-control" id="message" placeholder="" maxlength="106">
                         <span class="input-group-addon">
                             <i id="send_message" class="fa fa-search send_button">Send</i>
                         </span>
@@ -110,6 +111,26 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-primary" id="add_contact">add contact</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="configurationModal" class="modal fade">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                        <h4 class="modal-title">Configuration</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <input type="text" class="form-control" id="config_node_address" placeholder="Node address">
+                            <input type="text" class="form-control" id="config_node_port" placeholder="Node port">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" id="save_config">save</button>
                     </div>
                 </div>
             </div>

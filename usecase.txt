@@ -22,7 +22,4 @@ TODO:
 - remove contacts
 - remove accounts
 - remove messages
-- resend errored messages
 - login screen
-- autoscroll messages
-- limit message length

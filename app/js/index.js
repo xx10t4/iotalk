@@ -12,18 +12,20 @@ $(document).ready(function () {
     const MessagesStore = require("./messages.js")
     const AccountsStore = require("./accounts.js")
     const ContactsStore = require("./contacts.js")
+    const ConfigurationStore = require("./configuration.js")
     //  Instantiate IOTA with provider 'http://localhost:14265'
-    const iota = new IOTA({
+    var iota = new IOTA({
         //'host': 'http://iota.bitfinex.com',
-        'host': 'http://5.9.137.199',
-        //'host': 'http://iota1',
-        'port': 14265
+        'host': 'localhost',
+        //'host': 'http://iota1',node_address
+        'port': 1
     });
 
     var seed;
     var messagesStore;
     var accountsStore;
     var contactsStore;
+    var configuration;
 
     // global state
     var currentAccount;
@@ -41,6 +43,12 @@ $(document).ready(function () {
     const PUBLICKEY_STATUS_ERROR = 'error'
     const PUBLICKEY_STATUS_BAD_FINGERPRINT = 'bad_fingerprint'
     const PUBLICKEY_STATUS_SENDING = 'sending'
+
+    // status codes for outgoing messages
+    const MESSAGE_STATUS_SENT = 'sent'
+    const MESSAGE_STATUS_NOT_FOUND = 'not_found'
+    const MESSAGE_STATUS_ERROR = 'error'
+    const MESSAGE_STATUS_SENDING = 'sending'
 
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
 
@@ -82,6 +90,9 @@ $(document).ready(function () {
         })
     }
 
+    /*
+        creates a new account and sends the public key to the tangle
+    */
     function createAccount(name) {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
             if (error) {
@@ -112,7 +123,7 @@ $(document).ready(function () {
     }
 
     /*
-        creates a tangle transaction bundle to publish an account public key
+        creates a tangle transaction bundle that publishes an account public key
     */
     var sendAccount = function(account) {
         var publicKeyMessage = {
@@ -134,6 +145,9 @@ $(document).ready(function () {
         showAccountsList();                
     }
 
+    /*
+        retrieves a public key by fingerprint tag from the tangle
+    */ 
     var getPublicKey = function(tag, callback) {
         iota.api.findTransactions({ tags: [tag] }, function (error, result) {
         
@@ -169,45 +183,55 @@ $(document).ready(function () {
         iota.api.getNodeInfo(function (error, results) {})
     }
 
-    var sendMessage = function(messageText) {
+    /*
+        creates a new message and sends the public key to the tangle
+    */
+    var createMessage = function(messageText, fromAccount, toContact) {
 
-        var messageTo = currentContact
-        var messageFrom = currentAccount
-        var messageFromFingerprint = createPublicKeyFinderprint(messageFrom.publicKey)
         /* TODO address cycling
             - send to the contact's most recent message replyAddress, if there is one, instead of the contact's public key address
             - create a new address for this message's replyAddress
         */
-        var address = messageTo.address
-        var replyAddress = messageFrom.address
-        var message = JSON.stringify({
-            to: messageTo.fingerprint,
-            from: encrypt(messageFromFingerprint, messageTo.publicKey),
-            body: encrypt(messageText, messageTo.publicKey),
-            replyAddress: encrypt(replyAddress, messageTo.publicKey)
-        })
+        var toAddress = toContact.address
+        var replyAddress = fromAccount.address 
+
+        var message = {
+            text: messageText,
+            to: toContact.fingerprint,
+            from: fromAccount.fingerprint,
+            address: toAddress,
+            replyAddress: replyAddress,
+       }
+        messagesStore.insert(message)
+        sendMessage(message)
+    }
+
+    /*
+        creates a tangle transaction bundle that publishes a message
+    */
+    var sendMessage = function(message) {
+
+        var publicKey = getContact(message.to).publicKey
+        var tangleMessage = {
+            to: message.to,
+            from: encrypt(message.from, publicKey),
+            body: encrypt(message.text, publicKey),
+            replyAddress: encrypt(message.replyAddress, publicKey)
+        }
         
         var transfer = [{
-            'address': address,
+            'address': message.address,
             'value': 0,
-            'message': iota.utils.toTrytes(message),
+            'message': iota.utils.toTrytes(JSON.stringify(tangleMessage)),
             'tag': IOTALKMESSAGE_TAG
         }]
+   
+        message.status = PUBLICKEY_STATUS_SENDING
+        message.timestamp = dateToTimestamp()
+        messagesStore.update(message)
 
-        var localMessage = {
-            text: messageText,
-            to: messageTo.fingerprint,
-            from: messageFromFingerprint,
-            timestamp: dateToTimestamp(),
-            address: address,
-            replyAddress: replyAddress,
-            status: 'sending'
-        }
-        messagesStore.insert(localMessage)
-    
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: message})
         showMessageList();                
-
     }
 
     var getMessages = function(addresses, callback) {
@@ -351,6 +375,20 @@ $(document).ready(function () {
         }
     }
 
+    /*
+        updates all messages with status: sending to status: error
+        TODO: find out if messages were actually sent and update status appropriately
+    */
+    var updateSendingMessages = function() {
+        messages = messagesStore.find({
+                status: 'sending'
+        }).forEach(function (message) {
+            message.status = MESSAGE_STATUS_ERROR
+            messagesStore.update(message)
+        })
+
+    }
+
     /* 
         set status and statusMessage on contact or account record
     */
@@ -419,7 +457,6 @@ $(document).ready(function () {
     }
 
     var getInboundMessagesResultsHandler = function(error, messages) {
-        console.log("getInboundMessagesResultsHandler")
         if(error) {
             console.log("in handler error:  " +error)
         } else {
@@ -445,6 +482,7 @@ $(document).ready(function () {
                     }
                 }
             })
+            showMessageList()
         }
     }
 
@@ -609,35 +647,47 @@ $(document).ready(function () {
 
     var showMessageList = function() {
         if(currentAccount && currentContact) {
-            var accountfingerprint = createPublicKeyFinderprint(currentAccount.publicKey)
             var messages = messagesStore.find({
-                from: { '$in' :[accountfingerprint, currentContact.fingerprint]},
-                to: { '$in' :[accountfingerprint, currentContact.fingerprint]}
+                from: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]},
+                to: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]}
            })
             /*
             messages = messagesStore.find({
-                 from: { '$in' :[accountfingerprint]}
+                 status: 'sending'
             })
             messages.forEach(function (message) {
-                message.replyAddress = message.address
-                console.log(JSON.stringify(message))
-               messagesStore.update(message)
+                console.log(message.status)
+                if (message.status === 'sending'){
+                    message.status = MESSAGE_STATUS_NOT_FOUND
+                    //messagesStore.update(message)
+
+                }
             })
             */
-            $('#messagesList').empty()
+            var messagesList = $('#messagesList')
+            messagesList.empty()
             messages.forEach(function (message) {
-                var from = message.from === accountfingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
+                var inbound = message.from === currentContact.fingerprint
+                var from = message.from === currentAccount.fingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
                 if(from){
                     from = getKeyUsername(from) 
                 }
-                var info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
-                if(message.status === 'sending') {
+                var messageId = message.$loki
+                var info
+                if(inbound || message.status === MESSAGE_STATUS_SENT) {
+                    info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
+                } else if(message.status === MESSAGE_STATUS_SENDING) {
                     info = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>sending...</span>'
-                } else if (message.status === 'error') {
-                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message</span>'
+                } else if(message.status === MESSAGE_STATUS_NOT_FOUND || message.status === MESSAGE_STATUS_ERROR) {
+                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">message not sent. <input type="radio" name="fromAddress" id="message' + messageId + '" value="'+ messageId +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Resend</button></span>'
+                } else {
+                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message.</span>'
                 }
+                var scrollId = 'scrollTo' + messageId
 
-                $('#messagesList').append('<li class="message"><b>' + from + '</b> '+info+ '<br />'+message.text+'</label></li>')
+                messagesList.append('<li class="message" id="'+ scrollId +'"><b>' + from + '</b> '+info+ '<br />'+message.text+'</li>')
+
+                $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 500);
             });
         }
 
@@ -686,18 +736,43 @@ $(document).ready(function () {
                     return;
                 }
                 var address = addresses[0];
-                messagesStore = new MessagesStore(seed, createDatastoreFilename('messages', address), function(){
-                    accountsStore = new AccountsStore(seed, createDatastoreFilename('accounts', address), function(){
-                        contactsStore = new ContactsStore(seed, createDatastoreFilename('contacts', address), function(){
-                            refreshAccountKeys()
-                            showAccountsList()
-                            showContactsList();
-                            checkForNewMessages();
-                        })
-                   })                
+                configuration = new ConfigurationStore(seed, createDatastoreFilename('config', address), function(){
+                    initConfiguration()
+                    messagesStore = new MessagesStore(seed, createDatastoreFilename('messages', address), function(){
+                        accountsStore = new AccountsStore(seed, createDatastoreFilename('accounts', address), function(){
+                            contactsStore = new ContactsStore(seed, createDatastoreFilename('contacts', address), afterDataStoresInitialized)
+                        })                
+                    })
                 })              
             }
         })       
+    }
+
+    
+    /*
+        callback to do stuff after all dataStores have been intialized
+    */
+    var afterDataStoresInitialized = function() {
+        updateSendingMessages()
+        refreshAccountKeys()
+        showAccountsList()
+        showContactsList()
+        checkForNewMessages()
+    }
+
+    var initConfiguration = function() {
+        var node_address = configuration.get('node_address').value
+        var node_port = configuration.get('node_port').value
+        $('#config_node_address').val(node_address)
+        $('#config_node_port').val(node_port)
+
+
+        iota = new IOTA({
+        //'host': 'http://iota.bitfinex.com',
+        'host': node_address,
+        //'host': 'http://iota1',node_address
+        'port': node_port
+    });
     }
 
     var createDatastoreFilename = function(type, address) {
@@ -743,6 +818,19 @@ $(document).ready(function () {
         createAccount(name)
     })
 
+    $("#save_config").on("click", function () {
+        var keys = [
+            'node_address',
+            'node_port'
+        ].forEach(function(key){
+            var config = configuration.get(key)            
+            config.value = $("#config_"+key).val()
+            configuration.set(config)
+        })        
+    })
+
+    
+
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
         currentContact = getContact(username.split('@')[1])
@@ -769,8 +857,16 @@ $(document).ready(function () {
     $("#send_message").on("click", function () {
         var message = $("#message").val();
         $("#message").val('');
-         sendMessage(message)
+         createMessage(message, currentAccount, currentContact)
     })
+
+    $('#messagesList').on('click','button.retry',function() {
+        var messageId = $(this).prev().val()
+        var results = messagesStore.find({$loki: parseInt(messageId)})
+        // TODO check and handle cases where results.length != 1
+        sendMessage(results[0])
+    });
+    
 
 
     // Utilities

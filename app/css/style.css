@@ -57,6 +57,10 @@ html {
   padding: 5px;
 }
 
+.toolbar a {
+  margin-left: 10px;
+}
+
 #logoutBtn {
   padding-right: 10px;
 }
@@ -128,7 +132,7 @@ html {
   float: right;
 }
 
-.users-section input[type=radio] {
+.users-section input[type=radio], #messagesList input[type=radio] {
   display: none;
 }
 
