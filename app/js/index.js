@@ -420,7 +420,6 @@ $(document).ready(function () {
     */
     var addAccountResultsHandler = function(error, results) {
         if (error) {
-            console.log("addAccountResultsHandler error: "+JSON.stringify(error))
             if(results && results.account) {
                 results.account.status = PUBLICKEY_STATUS_ERROR
                 console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
@@ -428,12 +427,10 @@ $(document).ready(function () {
             }
         } else {
             if(results && results.account) {
-                console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
                 results.account.status = PUBLICKEY_STATUS_OK
             }
         }
         accountsStore.update(results.account)
-        console.log("addAccountResultsHandler after update: "+JSON.stringify(results.account))
         showAccountsList()
     }
 
@@ -442,17 +439,14 @@ $(document).ready(function () {
             console.log("sendMessageResultsHandler error: "+JSON.stringify(error))
             if(results && results.message) {
                 results.message.status = 'error'
-                console.log("sendMessageResultsHandler results.message: "+JSON.stringify(results.message))
                 results.message.errorMessage = error
             }
         } else {
             if(results && results.message) {
-                console.log("sendMessageResultsHandler results.message: "+JSON.stringify(results.message))
                 results.message.status = 'sent'
             }
         }
         messagesStore.update(results.message)
-        console.log("sendMessageResultsHandler after update: "+JSON.stringify(results.message))
         showMessageList()
     }
 
@@ -490,7 +484,6 @@ $(document).ready(function () {
         Handles messages that may be stuck in 'sending' or 'error' states
     */
     var getSendingMessagesResultsHandler = function(error, messages) {
-        console.log("getSendingMessagesResultsHandler")
         if(error) {
             console.log("in handler error:  " +error)
         } else {
