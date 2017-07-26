@@ -65,6 +65,12 @@ html {
   padding-right: 10px;
 }
 
+#alertsHolder {
+  position: relative;
+  top: 45px;
+  z-index: 100;
+}
+
 .scroll {
   position: absolute;
   top: 0px;
@@ -172,6 +178,11 @@ li.message {
 li.message .time {
   color: #666666;
   font-size: 85%;
+}
+
+li.message .deleteMessage {
+  cursor: pointer;
+  color: #dddddd;
 }
 
 #send_message {

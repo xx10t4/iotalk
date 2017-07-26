@@ -13,11 +13,10 @@ $(document).ready(function () {
     const AccountsStore = require("./accounts.js")
     const ContactsStore = require("./contacts.js")
     const ConfigurationStore = require("./configuration.js")
-    //  Instantiate IOTA with provider 'http://localhost:14265'
+
+    // Initialize with bogus config until the real config is loaded
     var iota = new IOTA({
-        //'host': 'http://iota.bitfinex.com',
-        'host': 'localhost',
-        //'host': 'http://iota1',node_address
+        'host': '',
         'port': 1
     });
 
@@ -471,8 +470,6 @@ $(document).ready(function () {
                                 replyAddress: replyAddress
                             })
                         }
-                    } else {
-                        console.log("retrieved message for unknown account: "+JSON.stringify(message))
                     }
                 }
             })
@@ -546,10 +543,6 @@ $(document).ready(function () {
         return found[0]
     }
 
-    var createKeyPair = function() {
-        return ntru.keyPair();
-    }
-
     /*
     The first 27 trytes of a public key fingerprint. Intended for use as a tangle transaction tag to make searching for the tag easy.
     */
@@ -581,7 +574,7 @@ $(document).ready(function () {
 
 // UI functions
 
-    function showMessenger() {
+    var showMessenger = function() {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
@@ -589,7 +582,7 @@ $(document).ready(function () {
 
     }
 
-    function showLogin(message = "") {
+    var showLogin = function(message = "") {
         $("#login-message").html(message);
         if (message = "") {
             $("#login-message").addClass("hidden");
@@ -643,20 +636,7 @@ $(document).ready(function () {
             var messages = messagesStore.find({
                 from: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]},
                 to: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]}
-           })
-            /*
-            messages = messagesStore.find({
-                 status: 'sending'
             })
-            messages.forEach(function (message) {
-                console.log(message.status)
-                if (message.status === 'sending'){
-                    message.status = MESSAGE_STATUS_NOT_FOUND
-                    //messagesStore.update(message)
-
-                }
-            })
-            */
             var messagesList = $('#messagesList')
             messagesList.empty()
             messages.forEach(function (message) {
@@ -666,16 +646,18 @@ $(document).ready(function () {
                     from = getKeyUsername(from) 
                 }
                 var messageId = message.$loki
+                var deleteButton = '<input type="radio" name="message" id="deleteMessage' + messageId + '" value="'+ messageId +'"><a class="deleteMessage"><span class="glyphicon glyphicon-trash" aria-hidden="true"></span></a>'
                 var info
                 if(inbound || message.status === MESSAGE_STATUS_SENT) {
                     info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
                 } else if(message.status === MESSAGE_STATUS_SENDING) {
                     info = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>sending...</span>'
                 } else if(message.status === MESSAGE_STATUS_NOT_FOUND || message.status === MESSAGE_STATUS_ERROR) {
-                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">message not sent. <input type="radio" name="fromAddress" id="message' + messageId + '" value="'+ messageId +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Resend</button></span>'
+                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">message not sent. <input type="radio" name="fromAddress" id="message' + messageId + '" value="'+ messageId +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Resend</button> </span> ' + deleteButton
                 } else {
-                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message.</span>'
+                    info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message.</span> ' + deleteButton
                 }
+                
                 var scrollId = 'scrollTo' + messageId
 
                 messagesList.append('<li class="message" id="'+ scrollId +'"><b>' + from + '</b> '+info+ '<br />'+message.text+'</li>')
@@ -683,15 +665,17 @@ $(document).ready(function () {
                 $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 500);
             });
         }
-
     }
 
-    function showWaiting(message) {
-        $(".login_section").addClass("hidden");
-        $(".messenger_section").addClass("hidden");
-        $(".waiting_section").removeClass("hidden");
-        $("#waiting_message").html(message);
+    var showAlert = function(type, message) {
+        var newAlert = '<div class="alert alert-'+type+' alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>'+ message+'</div>';
+       // var html = $("#alerts").html() + newAlert
+        $("#alertsHolder").html(newAlert);
     }
+
+    var hideAlerts = function() {
+        $("#alertsHolder").html('');
+    } 
 
     var validateSeed = function(value) {
         var result = { "valid": true, "message": "" }
@@ -758,14 +742,29 @@ $(document).ready(function () {
         var node_port = configuration.get('node_port').value
         $('#config_node_address').val(node_address)
         $('#config_node_port').val(node_port)
+        if(!validNodeAddress(node_address, node_port)) {
+            showAlert('warning', 'A valid node address is required. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.</a>')
+        } else {
 
+            iota = new IOTA({
+                'host': node_address,
+                'port': node_port
+            });
+            iota.api.getNodeInfo(function (error, results) {
+                if(error || !results) {
+                    showAlert('warning', node_address + ' returned an error. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.')    
+                } else if(results.latestMilestoneIndex !== results.latestSolidSubtangleMilestoneIndex) {
+                    showAlert('warning', node_address + ' is not fully synced. You may not be able to send messages.')    
+                } else {
+                    showAlert('success', 'Node configuration is complete.')    
+                }
+            })
 
-        iota = new IOTA({
-        //'host': 'http://iota.bitfinex.com',
-        'host': node_address,
-        //'host': 'http://iota1',node_address
-        'port': node_port
-    });
+        }
+    }
+
+    var validNodeAddress = function(address, port) {
+        return address.match(/^https?:\/\/.+/) && port.match(/\d+/)
     }
 
     var createDatastoreFilename = function(type, address) {
@@ -777,7 +776,7 @@ $(document).ready(function () {
         setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
     }
 
-    // Event handlers
+    // UI Event handlers
 
     $("#login").on("click", function () {
         var seed_ = $("#userSeed").val();
@@ -812,17 +811,19 @@ $(document).ready(function () {
     })
 
     $("#save_config").on("click", function () {
-        var keys = [
+        [
             'node_address',
             'node_port'
-        ].forEach(function(key){
+        ].forEach(function(key, idx, keys){
             var config = configuration.get(key)            
             config.value = $("#config_"+key).val()
             configuration.set(config)
-        })        
+            if(idx === (keys.length - 1)){
+                // after last config is saved, redo initialization
+                initConfiguration()
+            }
+        }) 
     })
-
-    
 
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
@@ -850,7 +851,14 @@ $(document).ready(function () {
     $("#send_message").on("click", function () {
         var message = $("#message").val();
         $("#message").val('');
-         createMessage(message, currentAccount, currentContact)
+        if(message.match(/^\s*$/)) {
+            showAlert('warning',"Message is blank!")
+        } else if(!(currentAccount && currentContact)) {
+            showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")            
+        } else {
+            createMessage(message, currentAccount, currentContact)
+        }
+         
     })
 
     $('#messagesList').on('click','button.retry',function() {
@@ -858,6 +866,12 @@ $(document).ready(function () {
         var results = messagesStore.find({$loki: parseInt(messageId)})
         // TODO check and handle cases where results.length != 1
         sendMessage(results[0])
+    });
+    
+    $('#messagesList').on('click','a.deleteMessage',function() {
+        var messageId = $(this).prev().val()
+        messagesStore.remove(messagesStore.find({$loki: parseInt(messageId)}))
+        showMessageList()
     });
     
 
@@ -895,6 +909,13 @@ $(document).ready(function () {
             }           
         }
         return ''
+    }
+
+    /*
+        ntru functions
+    */
+    var createKeyPair = function() {
+        return ntru.keyPair();
     }
 
     var encrypt = function(message, publicKey) {

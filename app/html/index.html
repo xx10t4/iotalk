@@ -60,9 +60,9 @@
                     <a href="#configurationModal" data-toggle="modal"><span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span></a>
                     <a href="" id="logoutBtn"><span class="glyphicon glyphicon-log-out" rel="tooltip" title="Log out" ></span></a>
                 </div>
+                <div id="alertsHolder"></div>
                 <div id="messageScroll" class="scroll messages-section">
                     <ul id="messagesList">
-                        <li>Select an Account and a Contact to send a message.</li>
                     </ul>
                 </div>
                 <div class="fixed-bottom message-input">
@@ -91,7 +91,7 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="create_account">create account</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="create_account">create account</button>
                     </div>
                 </div>
             </div>
@@ -110,7 +110,7 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="add_contact">add contact</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="add_contact">add contact</button>
                     </div>
                 </div>
             </div>
@@ -121,16 +121,16 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-                        <h4 class="modal-title">Configuration</h4>
+                        <h4 class="modal-title">Configure Node Address</h4>
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
-                            <input type="text" class="form-control" id="config_node_address" placeholder="Node address">
-                            <input type="text" class="form-control" id="config_node_port" placeholder="Node port">
+                            <input type="text" class="form-control" id="config_node_address" placeholder="Node address, example: http://iota.bitfinex.com">
+                            <input type="text" class="form-control" id="config_node_port" placeholder="Node port, example: 80">
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="save_config">save</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="save_config">save</button>
                     </div>
                 </div>
             </div>
