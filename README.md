@@ -4,12 +4,9 @@ IOTA1k is a privacy-minded messaging system built on the IOTA Tangle. Each messa
 
 This is currently very alpha-quality software. Please report issues on github. For extra safety I recommend not using an IOTA seed that has any value right now.
 
-
 h1. Compiling
 
-I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile for linux. 
-
-Some dependencies may need to be installed:
+I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile the app for linux:
 ```
     sudo apt install graphicsmagick
     sudo apt-get install g++-multilib
@@ -21,7 +18,7 @@ I use yarn to manage node depedencies and run the compile scipts:
     yarn install
     yarn run compile # all platforms
     yarn run compile:lin # linux
-    yarn run compile:mac # mac (on Ubuntu, the '.dmg' format will not comile)
+    yarn run compile:mac # mac (on Ubuntu, the '.dmg' format will be not compiled)
     yarn run compile:win # Windows 64 & 32 bit
     yarn run compile:win64 #  Windows 64 bit
     yarn run compile:win32 #  Windows 32 bit

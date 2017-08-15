@@ -1,6 +1,6 @@
 {
   "name": "IOTa1k",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
@@ -27,7 +27,7 @@
     "tangle"
   ],
   "author": "xx10t4 <xx10t4@gmail.com>",
-  "license": "CC0-1.0",
+  "license": "MIT",
   "dependencies": {
     "crypto.iota.js": "~0.0.4",
     "iota.lib.js": "~0.4.0",
