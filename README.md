@@ -1,10 +1,10 @@
-h1. IOTA1k
+# iota1k
 
-IOTA1k is a privacy-minded messaging system built on the IOTA Tangle. Each message is a transaction bundle stored in the Tangle, just like a value transfer. Messages are encrypted so only the intended recipient can read them. IOTAlk provides an easy way for users to create a public key that also act as a message address. Other users can send encrypted messages to that address, and only the recipient can read it.
+**iota1k** is a privacy-minded messaging system built on the IOTA Tangle. Each message is a transaction bundle stored in the Tangle, just like a value transfer. Messages are encrypted so only the intended recipient can read them. **iota1k** provides an easy way for users to create a public key that also act as a message address. Other users can send encrypted messages to that address, and only the recipient can read it.
 
 This is currently very alpha-quality software. Please report issues on github. For extra safety I recommend not using an IOTA seed that has any value right now.
 
-h1. Compiling
+## Compiling
 
 I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile the app for linux:
 ```
