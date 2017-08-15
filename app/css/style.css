@@ -93,6 +93,10 @@ html {
   height: 75px; 
 }
 
+.login_section {
+  padding-top: 50px;
+}
+
 #login-message {
   background-color: #ffe6b3;
   border: solid 1px #2D3142;
