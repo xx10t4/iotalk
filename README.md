@@ -6,10 +6,17 @@ This is currently very alpha-quality software. Please report issues on github. F
 
 ## Compiling
 
-I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile the app for linux:
+I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile the app for various platforms:
 ```
+    # needed to compile to linux
     sudo apt install graphicsmagick
     sudo apt-get install g++-multilib
+
+    # needed to compile to Windows
+    sudo add-apt-repository ppa:ubuntu-wine/ppa
+    sudo apt-get update
+    sudo apt-get install wine1.8 winetricks
+
 ```
 
 I use yarn to manage node depedencies and run the compile scipts:

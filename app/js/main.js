@@ -26,6 +26,9 @@ const BrowserWindow = electron.BrowserWindow
 
 const path = require('path')
 const url = require('url')
+const i18n             = require("i18next");
+const i18nBackend      = require("i18next-sync-fs-backend");
+const menu = require('./menu.js')
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -41,6 +44,9 @@ function createWindow () {
     icon: path.join(__dirname, '../../images', 'iota-logo-small.png')
   })
 
+  console.log("APP:"+app)
+  menu(electron,mainWindow)
+  
   // and load the index.html of the app.
   mainWindow.loadURL(url.format({
     pathname: path.join(__dirname, '../html/index.html'),
@@ -59,6 +65,7 @@ function createWindow () {
     mainWindow = null
   })
 }
+
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
