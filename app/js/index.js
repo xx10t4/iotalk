@@ -788,11 +788,11 @@ $(document).ready(function () {
     var getCcurlPath = function() {
         var is64BitOS = process.arch == "x64";
         if (process.platform == "win32") {
-            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+            return path.join("lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
-            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "mac");
+            return path.join("lib", "ccurl", "mac");
         } else {
-            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+            return path.join("lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
         }
     }
 
