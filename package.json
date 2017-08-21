@@ -1,5 +1,5 @@
 {
-  "name": "IOTa1k",
+  "name": "iota1k",
   "version": "0.0.1",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
@@ -12,7 +12,7 @@
     "compile:mac": "export CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --mac --x64",
     "compile:win": "electron-builder --win --x64 --ia32",
     "compile:win64": "electron-builder --win --x64",
-    "compile:win32": "electron-builder --win --x32",
+    "compile:win32": "electron-builder --win --ia32",
     "prepublish": "rimraf out/*",
     "publish": "export CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --win --mac --linux --x64 --ia32 --publish always",
     "publish:lin": "electron-builder --linux --x64 --ia32 --publish always",
@@ -27,7 +27,7 @@
     "tangle"
   ],
   "author": "xx10t4 <xx10t4@gmail.com>",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "dependencies": {
     "crypto.iota.js": "~0.0.4",
     "iota.lib.js": "~0.4.0",
@@ -49,7 +49,6 @@
     "electron": "^1.7.4",
     "electron-builder": "^19.19.1",
     "follow-redirects": "^1.2.4",
-    "electron-rebuild": "^1.5.11",
     "rimraf": "^2.6.1"
   },
   "build": {

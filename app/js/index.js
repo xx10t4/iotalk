@@ -76,16 +76,7 @@ $(document).ready(function () {
             return callback(new Error("Invalid number of arguments"));
         }
 
-        var ccurlPath;
-
-        var is64BitOS = process.arch == "x64";
-        if (process.platform == "win32") {
-            ccurlPath = path.join("lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
-        } else if (process.platform == "darwin") {
-            ccurlPath = path.join("lib", "ccurl", "mac");
-        } else {
-            ccurlPath = path.join("lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
-        }
+        var ccurlPath = getCcurlPath();
 
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
             if (error) return callback(error, callbackOptions)
@@ -784,11 +775,25 @@ $(document).ready(function () {
     }
 
     var validNodeAddress = function(address, port) {
+        if(!(address && port)) {
+            return false
+        }
         return address.match(/^https?:\/\/.+/) && port.match(/\d+/)
     }
 
     var createDatastoreFilename = function(type, address) {
         return path.join(electron.remote.app.getPath('userData'), address + '.' + type + '.data');
+    }
+
+    var getCcurlPath = function() {
+        var is64BitOS = process.arch == "x64";
+        if (process.platform == "win32") {
+            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+        } else if (process.platform == "darwin") {
+            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "mac");
+        } else {
+            return path.join(electron.remote.app.getAppPath(), "app", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+        }
     }
 
     var checkForNewMessages = function () {
