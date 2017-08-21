@@ -586,6 +586,8 @@ $(document).ready(function () {
 // UI functions
 
     var showMessenger = function() {
+        console.log("electron.remote.app.getAppPath(): "+electron.remote.app.getAppPath())
+        console.log("getCcurlPath(): "+getCcurlPath())
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
@@ -788,11 +790,11 @@ $(document).ready(function () {
     var getCcurlPath = function() {
         var is64BitOS = process.arch == "x64";
         if (process.platform == "win32") {
-            return path.join("lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
-            return path.join("lib", "ccurl", "mac");
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "mac");
         } else {
-            return path.join("lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
         }
     }
 

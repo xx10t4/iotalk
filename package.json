@@ -60,7 +60,7 @@
       "github"
     ],
     "appId": "iota1k",
-    "extraFiles": [
+    "extraResources": [
       "lib/**/*"
     ],
     "dmg": {
