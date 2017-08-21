@@ -4,29 +4,21 @@
 
 This is currently very alpha-quality software. Please report issues on github. For extra safety I recommend not using an IOTA seed that has any value right now.
 
+
 ## Compiling
 
-I have only compiled it on Ubuntu 16.04 and I had to install these dependencies to get electron-builder to compile the app for various platforms:
+Right now binaries have only been compiled for linux and Windows 10. There is no reason it should not be compileable on OSX, but that has not been tested yet (pull requests welcome):
 ```
-    # needed to compile to linux
+    # pre-steps needed to compile to linux
     sudo apt install graphicsmagick
     sudo apt-get install g++-multilib
+    cd path/to/iota1k/
+    npm compile:lin
 
-    # needed to compile to Windows
-    sudo add-apt-repository ppa:ubuntu-wine/ppa
-    sudo apt-get update
-    sudo apt-get install wine1.8 winetricks
+    # needed to compile on Windows - run this command as an Administrator
+    npm install --global --production windows-build-tools
+    cd path/to/iota1k/
+    npm run compile:win
 
 ```
 
-I use yarn to manage node depedencies and run the compile scipts:
-```
-    cd <project root dir>
-    yarn install
-    yarn run compile # all platforms
-    yarn run compile:lin # linux
-    yarn run compile:mac # mac (on Ubuntu, the '.dmg' format will be not compiled)
-    yarn run compile:win # Windows 64 & 32 bit
-    yarn run compile:win64 #  Windows 64 bit
-    yarn run compile:win32 #  Windows 32 bit
-```
