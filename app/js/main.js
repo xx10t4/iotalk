@@ -44,7 +44,6 @@ function createWindow () {
     icon: path.join(__dirname, '../../images', 'iota-logo-small.png')
   })
 
-  console.log("APP:"+app)
   menu(electron,mainWindow)
   
   // and load the index.html of the app.

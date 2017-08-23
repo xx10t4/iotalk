@@ -1,7 +1,6 @@
 const i18n             = require("i18next");
 
 var buildMenu = function(electron, window) {
-    console.log("electron in build menu: "+ electron)
     const template = [
         {
             label: 'Edit',

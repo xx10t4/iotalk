@@ -52,7 +52,7 @@ $(document).ready(function () {
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 15;
     var tangleDepth = 4;
-    const MESSAGE_CHECK_FREQUENCY = 30 // seconds
+    const MESSAGE_CHECK_FREQUENCY = 20 // seconds
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
     // status codes for account and contact public keys
@@ -586,8 +586,6 @@ $(document).ready(function () {
 // UI functions
 
     var showMessenger = function() {
-        console.log("electron.remote.app.getAppPath(): "+electron.remote.app.getAppPath())
-        console.log("getCcurlPath(): "+getCcurlPath())
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
         $(".waiting_section").addClass("hidden");
