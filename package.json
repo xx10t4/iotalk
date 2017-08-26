@@ -1,6 +1,6 @@
 {
   "name": "iota1k",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
