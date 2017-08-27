@@ -609,14 +609,19 @@ $(document).ready(function () {
     var showAccountsList = function () {
         var accounts = accountsStore.all()
         if (accounts && accounts.length > 0) {
+            if(!currentAccount) {
+                // default the currentAccount to the first one in the list
+                setCurrentAccount(accounts[0])
+            }
             $('#accountsList').empty()
             accounts.forEach(function (account) {
                 var tag = getPublicKeyTag(account.publicKey)
                 var userName = getKeyUsername(account) 
                 var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
                 var item
+                var labelClass = account.fingerprint == currentAccount.fingerprint ? "current" : ""
                 if(account.status === PUBLICKEY_STATUS_OK) {
-                    item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
+                    item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label id="accountLabel'+tag+'" class="'+labelClass+'" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
                 } else if(account.status === PUBLICKEY_STATUS_SENDING) {
                     item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
                 } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
@@ -632,13 +637,18 @@ $(document).ready(function () {
     var showContactsList = function() {
         var contacts = contactsStore.all()
         if(contacts && contacts.length > 0) {
+            if(!currentContact) {
+                // default the currentContact to the first one in the list
+                setCurrentContact(contacts[0])
+            }
             $('#contactsList').empty()
             contacts.forEach(function (contact) {
                 if(!contact.error) {
                     var tag = getPublicKeyTag(contact.publicKey)
+                    var labelClass = contact.fingerprint == currentContact.fingerprint ? "current" : ""
                     var userName = getKeyUsername(contact) 
                     var deleteButton = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
-                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + ' '+ deleteButton + '</label></li>')
+                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' '+ deleteButton + '</label></li>')
                 }
             });
         }
@@ -854,10 +864,7 @@ $(document).ready(function () {
 
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
-        currentContact = getContact(username.split('@')[1])
-        showMessageList();
-        $('#contactsList label').removeClass("current")   
-        $(this).addClass("current")
+        setCurrentContact(getContact(username.split('@')[1]))
     });
 
     $('#contactsList').on('click','a.delete',function(event) {
@@ -882,10 +889,7 @@ $(document).ready(function () {
 
     $('#accountsList').on('click','label',function() {
         var username = $(this).prev().val()
-        currentAccount = getAccount(username.split('@')[1])
-        showMessageList();
-        $('#accountsList label').removeClass("current")   
-        $(this).addClass("current")
+        setCurrentAccount(getAccount(username.split('@')[1]))
     });
 
     $('#accountsList').on('click','a.delete',function(event) {
@@ -939,8 +943,25 @@ $(document).ready(function () {
         var messageId = $(this).prev().val()
         messagesStore.remove(messagesStore.find({$loki: parseInt(messageId)}))
         showMessageList()
-    });    
+    }); 
+    
+    
+    // Set globals
+    var setCurrentAccount = function(account) {
+        currentAccount = account
+        var tag = getPublicKeyTag(currentAccount.publicKey)
+        $('#accountsList label').removeClass("current")   
+        $('#accountLabel'+tag).addClass("current")
+        showMessageList();        
+    }
 
+    var setCurrentContact = function(contact) {
+        currentContact = contact
+        var tag = getPublicKeyTag(currentContact.publicKey)
+        $('#contactsList label').removeClass("current")   
+        $('#contactLabel'+tag).addClass("current")
+        showMessageList();        
+    }
 
     // Utilities
     /*
