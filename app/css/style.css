@@ -127,8 +127,11 @@ html {
   color: #ffffff;
 }
 
-.users-section .btn-xs {
+.users-section .btn-xs, .users-section a {
   color: #5D939B;
+}
+
+.users-section .btn-xs {
   border-color: #5D939B;
   background-color: #123d43;
 }
@@ -138,7 +141,7 @@ html {
   border-radius: 12px;
 }
 
-.users-section a.btn-xs {
+.users-section a {
   float: right;
 }
 
@@ -147,7 +150,7 @@ html {
 }
 
 .users-section label {
-  padding: 6px 12px;
+  padding: 6px 5px 6px 12px;
   width: 100%;
 }
 
@@ -165,6 +168,10 @@ html {
   background-color: #04a997;
   color: #ffffff;
   border-radius: 5px;
+}
+
+.users-section label.current a.delete {
+  color: #ffffff;
 }
 
 .messages-section, .message-input{ 

@@ -613,9 +613,10 @@ $(document).ready(function () {
             accounts.forEach(function (account) {
                 var tag = getPublicKeyTag(account.publicKey)
                 var userName = getKeyUsername(account) 
+                var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
                 var item
                 if(account.status === PUBLICKEY_STATUS_OK) {
-                    item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + '</label>'
+                    item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label class="" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
                 } else if(account.status === PUBLICKEY_STATUS_SENDING) {
                     item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
                 } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
@@ -636,7 +637,8 @@ $(document).ready(function () {
                 if(!contact.error) {
                     var tag = getPublicKeyTag(contact.publicKey)
                     var userName = getKeyUsername(contact) 
-                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + '</label></li>')
+                    var deleteButton = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
+                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label for="toAddress'+ tag + '">' + userName + ' '+ deleteButton + '</label></li>')
                 }
             });
         }
@@ -854,8 +856,28 @@ $(document).ready(function () {
         var username = $(this).prev().val()
         currentContact = getContact(username.split('@')[1])
         showMessageList();
-       $('#contactsList label').removeClass("current")   
+        $('#contactsList label').removeClass("current")   
         $(this).addClass("current")
+    });
+
+    $('#contactsList').on('click','a.delete',function(event) {
+        var username = $(this).prev().val()
+        var contact = getContact(username.split('@')[1])       
+        var messages = messagesStore.find({
+            '$or': [
+                {from: { '$in' :[contact.fingerprint]}},
+                {to: { '$in' :[contact.fingerprint]}}
+            ]
+        })
+        var confirmMessage = "Are you sure you want to delete contact "+ username + "?"
+        if(messages.length > 0) {
+            confirmMessage += "\n\nThis will delete "+messages.length+" messages to and from this contact."
+        }
+        if(confirm(confirmMessage)){
+            messagesStore.remove(messages)
+            contactsStore.remove(contact)
+        }
+        showContactsList()
     });
 
     $('#accountsList').on('click','label',function() {
@@ -864,6 +886,26 @@ $(document).ready(function () {
         showMessageList();
         $('#accountsList label').removeClass("current")   
         $(this).addClass("current")
+    });
+
+    $('#accountsList').on('click','a.delete',function(event) {
+        var username = $(this).prev().val()
+        var contact = getAccount(username.split('@')[1])       
+        var messages = messagesStore.find({
+            '$or': [
+                {from: { '$in' :[contact.fingerprint]}},
+                {to: { '$in' :[contact.fingerprint]}}
+            ]
+        })
+        var confirmMessage = "Are you sure you want to delete account "+ username + "?"
+        if(messages.length > 0) {
+            confirmMessage += "\n\nThis will delete "+messages.length+" messages to and from this account."
+        }
+        if(confirm(confirmMessage)){
+            messagesStore.remove(messages)
+            accountsStore.remove(contact)
+        }
+        showAccountsList()
     });
 
     $('#accountsList').on('click','button.retry',function() {
@@ -897,8 +939,7 @@ $(document).ready(function () {
         var messageId = $(this).prev().val()
         messagesStore.remove(messagesStore.find({$loki: parseInt(messageId)}))
         showMessageList()
-    });
-    
+    });    
 
 
     // Utilities

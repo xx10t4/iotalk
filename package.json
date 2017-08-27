@@ -1,6 +1,6 @@
 {
   "name": "iota1k",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
@@ -48,6 +48,7 @@
   "devDependencies": {
     "electron": "1.7.4",
     "electron-builder": "^19.19.1",
+    "electron-rebuild": "1.6.0",
     "follow-redirects": "^1.2.4",
     "rimraf": "^2.6.1"
   },
