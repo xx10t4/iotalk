@@ -859,11 +859,11 @@ $(document).ready(function () {
     var getCcurlPath = function() {
         var is64BitOS = process.arch == "x64";
         if (process.platform == "win32") {
-            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
-            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "mac");
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "mac");
         } else {
-            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
         }
     }
 
