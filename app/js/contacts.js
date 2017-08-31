@@ -76,4 +76,15 @@ contactsStore.prototype.remove = function(object) {
     return this.contacts.remove(object)
 }
 
+/* 
+    Mark a contact as deleted, but keep fingerprint.
+*/
+contactsStore.prototype.softRemove = function(object) {
+    object.publicKey = null
+    object.name = null
+    object.addrss = null
+    object.deleted = new Date()
+    return this.update(object)
+}
+
 module.exports = contactsStore

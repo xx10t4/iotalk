@@ -34,8 +34,6 @@ const menu = require('./menu.js')
 // be closed automatically when the JavaScript object is garbage collected.
 let mainWindow
 
-console.log(path.join(__dirname, '../../images', 'iota-logo-small.png'))
-
 function createWindow () {
   // Create the browser window.
   mainWindow = new BrowserWindow({

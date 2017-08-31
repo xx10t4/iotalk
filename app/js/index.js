@@ -49,6 +49,8 @@ $(document).ready(function () {
     // global state
     var currentAccount;
     var currentContact;
+    var newContacts = []; // holds contacts tied to new messages not seen before 
+    var newMessages = []; // holds new messages not seen before 
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 15;
     var tangleDepth = 4;
@@ -77,6 +79,7 @@ $(document).ready(function () {
         }
 
         var ccurlPath = getCcurlPath();
+        console.log("ccurlPath: "+ccurlPath)
 
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
             if (error) return callback(error, callbackOptions)
@@ -396,7 +399,6 @@ $(document).ready(function () {
             message.status = MESSAGE_STATUS_ERROR
             messagesStore.update(message)
         })
-
     }
 
     /* 
@@ -464,28 +466,71 @@ $(document).ready(function () {
         if(error) {
             console.log("in handler error:  " +error)
         } else {
-            messages.forEach(function(message){
+            var newContacts = {}
+            for( var i = 0; i < messages.length; i++) {
+                var message = messages[i]
                 if(message.to){
                     var account = getAccount(message.to)
                     if(account) {                
                         var from = decrypt(message.from, account.privateKey).text
-                        var text = decrypt(message.body, account.privateKey).text
-                        var replyAddress = decrypt(message.replyAddress, account.privateKey).text
-                        if(from !== undefined && text !== undefined && replyAddress !== undefined) {
-                            messagesStore.upsert({
-                                to: message.to,
-                                timestamp: message.timestamp,
-                                address: message.address,
-                                from: from,
-                                text: text,
-                                replyAddress: replyAddress
-                            })
+                        if(from !== undefined) {
+                            var existingContact = getContact(from)
+                            if(existingContact) {
+                                if(existingContact.deleted) {
+                                    continue
+                                } else {
+                                    if (saveNewMessage(message, account)){
+                                        existingContact.newMessages += 1
+                                        contactsStore.update(existingContact)
+                                    }
+                                }
+                            } else {
+                                console.log("new contact:"+JSON.stringify(from))
+                                
+                                newContacts[from] = newContacts[from] ? newContacts[from] : []
+                                newContacts[from].push(message)                                
+                            }
                         }
                     }
                 }
-            })
-            showMessageList()
+            }
+            showContactsList()
+            for (var from in newContacts) {
+                var tag = from.substr(0,27)
+                getPublicKey(tag, function(error, publicKeys){
+                    addContactResultHandler(error, publicKeys)
+                    if(!error && publicKeys && publicKeys[0].fingerprint === from){
+                        var messages = newContacts[from]
+                        console.log("messages:"+JSON.stringify(messages))
+                        var contact = getContact(from)
+                        for(var i = 0; i < messages.length; i++) {
+                            message = messages[i]
+                            var account = getAccount(message.to)
+                            if (saveNewMessage(message, account)){
+                                contact.newMessages += 1
+                                contactsStore.update(contact)
+                            }
+                        }  
+                        showContactsList()
+                    }
+                })   
+            }
         }
+    }
+
+    var saveNewMessage = function(message, account) {
+        var from = decrypt(message.from, account.privateKey).text
+        var text = decrypt(message.body, account.privateKey).text
+        var replyAddress = decrypt(message.replyAddress, account.privateKey).text
+        var newMessage = {
+            to: message.to,
+            timestamp: message.timestamp,
+            address: message.address,
+            from: from,
+            text: text,
+            replyAddress: replyAddress
+        }
+        return messagesStore.upsert(newMessage)
     }
 
     /*
@@ -527,6 +572,7 @@ $(document).ready(function () {
                     publicKey: publicKey.publicKey
                 })
                 if(exists.length === 0){
+                    publicKey.newMessages = 0
                     contactsStore.insert(publicKey);
                 } 
                 showContactsList()                  
@@ -617,7 +663,7 @@ $(document).ready(function () {
             accounts.forEach(function (account) {
                 var tag = getPublicKeyTag(account.publicKey)
                 var userName = getKeyUsername(account) 
-                var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
+                var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                 var item
                 var labelClass = account.fingerprint == currentAccount.fingerprint ? "current" : ""
                 if(account.status === PUBLICKEY_STATUS_OK) {
@@ -636,19 +682,26 @@ $(document).ready(function () {
 
     var showContactsList = function() {
         var contacts = contactsStore.all()
+        $('#contactsList').empty()
+        $('#deletedContactsList').empty();
         if(contacts && contacts.length > 0) {
-            if(!currentContact) {
-                // default the currentContact to the first one in the list
-                setCurrentContact(contacts[0])
-            }
-            $('#contactsList').empty()
             contacts.forEach(function (contact) {
-                if(!contact.error) {
+                if(!contact.deleted && !contact.error) {
                     var tag = getPublicKeyTag(contact.publicKey)
-                    var labelClass = contact.fingerprint == currentContact.fingerprint ? "current" : ""
-                    var userName = getKeyUsername(contact) 
-                    var deleteButton = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span></a>'
-                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' '+ deleteButton + '</label></li>')
+                    var userName = getKeyUsername(contact)
+                    var labelClass = ''
+                    var icon = ''
+                    if(currentContact && contact.fingerprint == currentContact.fingerprint){
+                        labelClass = "current"
+                        icon = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+                    } else if(contact.newMessages > 0) {
+                        icon = '<span class="new-messages">'+contact.newMessages+'</span>'
+                    }
+                    var newMessageCount = contact.newMessages 
+                    $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' ' + icon + '</label></li>')
+                } else {
+                    var fingerprint = contact.fingerprint
+                    $('#deletedContactsList').append('<li id="'+ fingerprint +'"><input type="radio" name="toAddress" id="toAddress' + fingerprint + '" value="'+  fingerprint +'"><label  id="contactLabel'+fingerprint+'" for="toAddress'+ fingerprint + '">' + fingerprint + '</label></li>')
                 }
             });
         }
@@ -660,6 +713,12 @@ $(document).ready(function () {
                 from: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]},
                 to: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]}
             })
+            for(var i = 0; i < newMessages.length; i++) {
+                var newMessage = newMessages[i]
+                if(newMessage.from == currentContact.fingerprint){
+                    messages.push(newMessage)
+                }
+            }
             var messagesList = $('#messagesList')
             messagesList.empty()
             messages.forEach(function (message) {
@@ -747,7 +806,6 @@ $(document).ready(function () {
             }
         })       
     }
-
     
     /*
         callback to do stuff after all dataStores have been intialized
@@ -768,7 +826,6 @@ $(document).ready(function () {
         if(!validNodeAddress(node_address, node_port)) {
             showAlert('warning', 'A valid node address is required. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.</a>')
         } else {
-
             iota = new IOTA({
                 'host': node_address,
                 'port': node_port
@@ -782,7 +839,6 @@ $(document).ready(function () {
                     showAlert('success', 'Node configuration is complete.')    
                 }
             })
-
         }
     }
 
@@ -800,11 +856,11 @@ $(document).ready(function () {
     var getCcurlPath = function() {
         var is64BitOS = process.arch == "x64";
         if (process.platform == "win32") {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "mac");
+            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "mac");
         } else {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+            return path.join(electron.remote.app.getAppPath(), "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
         }
     }
 
@@ -878,11 +934,11 @@ $(document).ready(function () {
         })
         var confirmMessage = "Are you sure you want to delete contact "+ username + "?"
         if(messages.length > 0) {
-            confirmMessage += "\n\nThis will delete "+messages.length+" messages to and from this contact."
+            confirmMessage += "\n\nThis will delete "+messages.length+" messages between you and this contact."
         }
         if(confirm(confirmMessage)){
             messagesStore.remove(messages)
-            contactsStore.remove(contact)
+            contactsStore.softRemove(contact)
         }
         showContactsList()
     });
@@ -928,8 +984,7 @@ $(document).ready(function () {
             showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")            
         } else {
             createMessage(message, currentAccount, currentContact)
-        }
-         
+        }        
     })
 
     $('#messagesList').on('click','button.retry',function() {
@@ -949,18 +1004,26 @@ $(document).ready(function () {
     // Set globals
     var setCurrentAccount = function(account) {
         currentAccount = account
-        var tag = getPublicKeyTag(currentAccount.publicKey)
-        $('#accountsList label').removeClass("current")   
-        $('#accountLabel'+tag).addClass("current")
-        showMessageList();        
+        if(currentAccount){
+            var tag = getPublicKeyTag(currentAccount.publicKey)
+            $('#accountsList label').removeClass("current")   
+            $('#accountLabel'+tag).addClass("current")
+        }
+        showMessageList()        
     }
 
     var setCurrentContact = function(contact) {
         currentContact = contact
-        var tag = getPublicKeyTag(currentContact.publicKey)
-        $('#contactsList label').removeClass("current")   
-        $('#contactLabel'+tag).addClass("current")
-        showMessageList();        
+        if(currentContact){
+            currentContact.newMessages = 0
+            contactsStore.update(currentContact)
+            var tag = getPublicKeyTag(currentContact.publicKey)
+            $('#contactsList label').removeClass("current")   
+            $('#newContactsList label').removeClass("current")
+            $('#contactLabel'+tag).addClass("current")
+        }
+        showContactsList()
+        showMessageList()        
     }
 
     // Utilities
@@ -969,9 +1032,9 @@ $(document).ready(function () {
     */
     var dateToTimestamp = function(date = null) {
         if(date === null) {
-            date = new Date();
+            date = new Date()
         }
-        return Math.floor(date.getTime()/1000);
+        return Math.floor(date.getTime()/1000)
     }
 
     /*

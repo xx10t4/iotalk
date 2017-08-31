@@ -68,6 +68,7 @@ messageStore.prototype.upsert = function(params) {
     if(this.messages.find(params).length === 0) {
         return this.insert(params)  
     }
+    return null
 }
 
 messageStore.prototype.find = function(query) {

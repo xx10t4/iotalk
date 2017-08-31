@@ -41,8 +41,8 @@ html {
     display: table-row;
 }
 
-.col-md-2, .col-md-4, .col-md-8 {
-    height: 100%;
+.col-md-2, .col-md-4, .col-md-8{
+  height: 100%;
 
 }
 
@@ -69,6 +69,8 @@ html {
   position: relative;
   top: 45px;
   z-index: 100;
+  width: 60%;
+  margin: 0 auto;
 }
 
 .scroll {
@@ -162,6 +164,16 @@ html {
   display: inline-block;
   padding: 6px 0px 6px 3px;
   margin-bottom: 5px;
+}
+
+.users-section label .new-messages {
+  float: right;
+  display: block;
+  border-radius: 10px;
+  background-color: rgba(249, 164, 0, 0.95);
+  color: #ffffff;
+  font-size: 80%;
+  padding: 2px 4px 2px 4px;
 }
 
 .users-section label.current {
