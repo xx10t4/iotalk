@@ -353,11 +353,6 @@ $(document).ready(function () {
         }
     }
 
-    function getKeyUsername(publicKey) {
-        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
-    }
-
-
     var refreshAccountKeys = function() {
         accountsStore.all().forEach(function (account, idx) {           
             getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
@@ -485,8 +480,6 @@ $(document).ready(function () {
                                     }
                                 }
                             } else {
-                                console.log("new contact:"+JSON.stringify(from))
-                                
                                 newContacts[from] = newContacts[from] ? newContacts[from] : []
                                 newContacts[from].push(message)                                
                             }
@@ -607,6 +600,15 @@ $(document).ready(function () {
         return createPublicKeyFinderprint(publicKey).substr(0, 27);
     }
 
+    function getKeyUsername(publicKey) {
+        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
+    }
+
+    function getFingerprintUsername(publicKey) {
+        return (publicKey.name || '') + '@' + (publicKey.fingerprint || '').substr(0, 27)
+    }
+
+
     /*
     Creates a 81 tryte hash of a public key. Intended for use as a fingerprint of the public key
     */
@@ -701,7 +703,8 @@ $(document).ready(function () {
                     $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' ' + icon + '</label></li>')
                 } else {
                     var fingerprint = contact.fingerprint
-                    $('#deletedContactsList').append('<li id="'+ fingerprint +'"><input type="radio" name="toAddress" id="toAddress' + fingerprint + '" value="'+  fingerprint +'"><label  id="contactLabel'+fingerprint+'" for="toAddress'+ fingerprint + '">' + fingerprint + '</label></li>')
+                    var userName = getFingerprintUsername(contact)
+                    $('#deletedContactsList').append('<li id="'+ fingerprint +'">' + getFingerprintUsername(contact) + ' <input type="radio" name="fingerprint" id="fingerprint' + fingerprint + '" value="'+ fingerprint +'"><button type="button" class="unblock btn btn-default btn-xs"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Unblock</button></li>')
                 }
             });
         }
@@ -941,6 +944,15 @@ $(document).ready(function () {
             contactsStore.softRemove(contact)
         }
         showContactsList()
+        //showMessageList()
+    });
+
+    $('#deletedContactsList').on('click','button.unblock',function(event) {
+        var fingerprint = $(this).prev().val()
+        console.log("fingerp: "+fingerprint)
+        var contact = getContact(fingerprint)       
+        contactsStore.remove(contact)
+        showContactsList()
     });
 
     $('#accountsList').on('click','label',function() {
@@ -1013,8 +1025,8 @@ $(document).ready(function () {
     }
 
     var setCurrentContact = function(contact) {
-        currentContact = contact
-        if(currentContact){
+        if(contact && contact.publicKey){
+            currentContact = contact
             currentContact.newMessages = 0
             contactsStore.update(currentContact)
             var tag = getPublicKeyTag(currentContact.publicKey)

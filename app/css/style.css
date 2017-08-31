@@ -147,7 +147,7 @@ html {
   float: right;
 }
 
-.users-section input[type=radio], #messagesList input[type=radio] {
+.users-section input[type=radio], #messagesList input[type=radio], #deletedContactsList input[type=radio] {
   display: none;
 }
 
@@ -225,4 +225,17 @@ li.message .deleteMessage {
 @keyframes spin {
     from { transform: scale(1) rotate(0deg);}
     to { transform: scale(1) rotate(360deg);}
+}
+
+#configurationModal .modal-body:first {
+  border-top: none 0px #ffffff; 
+}
+
+#configurationModal .modal-body {
+  border-top: solid 1px #cccccc;
+  padding-bottom: 30px; 
+}
+
+#configurationModal h5{
+  color: #999999;
 }

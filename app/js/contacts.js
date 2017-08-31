@@ -81,7 +81,6 @@ contactsStore.prototype.remove = function(object) {
 */
 contactsStore.prototype.softRemove = function(object) {
     object.publicKey = null
-    object.name = null
     object.addrss = null
     object.deleted = new Date()
     return this.update(object)

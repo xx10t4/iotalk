@@ -19,7 +19,7 @@
             <div class="col-md-8">
                 <div id="login-message" class="hidden"> </div>
                 <div class="form-group">
-                    <input type="text" class="form-control" name="userSeed" id="userSeed" value="CPPSMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN" placeholder="Enter seed" />
+                    <input type="text" class="form-control" name="userSeed" id="userSeed" value="" placeholder="Enter seed" />
                 </div>
                 <div class="login_button">
                     <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>                     
@@ -48,9 +48,6 @@
                     <h4>Contacts</h4>
                     <ul id="contactsList" class="userList">
                         <li>Use the <span class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above to add contacts. Enter a valid IOTAlk address.</li>
-                    </ul>
-                    <h4>Deleted</h4>
-                    <ul id="deletedContactsList" class="userList">
                     </ul>
                 </div>
             </div>
@@ -119,16 +116,23 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-                        <h4 class="modal-title">Configure Node Address</h4>
+                        <h4 class="modal-title">Settings</h4>
                     </div>
                     <div class="modal-body">
+                        <h5>Node Address</h5>
                         <div class="form-group">
                             <input type="text" class="form-control" id="config_node_address" placeholder="Node address, example: http://iota.bitfinex.com">
                             <input type="text" class="form-control" id="config_node_port" placeholder="Node port, example: 80">
                         </div>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="save_config">save</button>
+                    </div>
+                    <div class="modal-body">
+                        <h5>Blocked Users</h4>
+                        <ul id="deletedContactsList" class="userList">
+                        </ul>         
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="save_config">save</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal">close</button>
                     </div>
                 </div>
             </div>
