@@ -64,10 +64,6 @@
     "extraResources": [
       "lib/**/*"
     ],
-    "files": [{
-      "from": "lib/**/*",
-      "to": "app/lib/**/*"
-    }],
     "dmg": {
       "iconSize": 125,
       "contents": [
