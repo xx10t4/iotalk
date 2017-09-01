@@ -5,7 +5,22 @@
 This is currently very alpha-quality software. Please report issues on github. For extra safety I recommend not using an IOTA seed that has any value right now.
 
 
-## Compiling
+# Running Unpackaged
+
+**iota1k** is built on Electron and Node. NPM or Yarn need to be intalled to run it.
+```
+cd path/to/iota1k
+# install and build dependencies
+yarn
+# run the app
+yarn run start
+
+# or with NPM 
+npm
+npm run start
+```
+
+## Packaging
 
 Right now binaries have only been compiled for linux and Windows 10. There is no reason it should not be compileable on OSX, but that has not been tested yet (pull requests welcome):
 ```
@@ -13,9 +28,9 @@ Right now binaries have only been compiled for linux and Windows 10. There is no
     sudo apt install graphicsmagick
     sudo apt-get install g++-multilib
     cd path/to/iota1k/
-    npm compile:lin
+    npm run compile:lin
 
-    # needed to compile on Windows - run this command as an Administrator
+    # needed to compile on Windows 10 - run this command in gitbash as an Administrator
     npm install --global --production windows-build-tools
     cd path/to/iota1k/
     npm run compile:win

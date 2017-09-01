@@ -636,7 +636,6 @@ $(document).ready(function () {
     var showMessenger = function() {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
-        $(".waiting_section").addClass("hidden");
         setDataStores()
 
     }
@@ -650,7 +649,6 @@ $(document).ready(function () {
         }
         $(".login_section").removeClass("hidden");
         $(".messenger_section").addClass("hidden");
-        $(".waiting_section").addClass("hidden");
 
     }
 
@@ -671,7 +669,7 @@ $(document).ready(function () {
                 if(account.status === PUBLICKEY_STATUS_OK) {
                     item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label id="accountLabel'+tag+'" class="'+labelClass+'" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
                 } else if(account.status === PUBLICKEY_STATUS_SENDING) {
-                    item = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
+                    item = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
                 } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
                     item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> not found. <input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 } else {
@@ -736,7 +734,7 @@ $(document).ready(function () {
                 if(inbound || message.status === MESSAGE_STATUS_SENT) {
                     info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
                 } else if(message.status === MESSAGE_STATUS_SENDING) {
-                    info = '<span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> <span>sending...</span>'
+                    info = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span>sending...</span>'
                 } else if(message.status === MESSAGE_STATUS_NOT_FOUND || message.status === MESSAGE_STATUS_ERROR) {
                     info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">message not sent. <input type="radio" name="fromAddress" id="message' + messageId + '" value="'+ messageId +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Resend</button> </span> ' + deleteButton
                 } else {
@@ -858,12 +856,16 @@ $(document).ready(function () {
 
     var getCcurlPath = function() {
         var is64BitOS = process.arch == "x64";
+        // TODO find a better way to manage packaged vs unpackaged file paths
+        var isDev = process.env.NODE_ENV === 'development'
+        var base_path = isDev ? path.join(electron.remote.app.getAppPath(), "lib", "ccurl") : 
+                            path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl")    
         if (process.platform == "win32") {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "win" + (is64BitOS ? "64" : "32"));
+            return path.join(base_path, "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "mac");
+            return path.join(base_path, "mac");
         } else {
-            return path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl", "lin" + (is64BitOS ? "64" : "32"));
+            return path.join(base_path, "lin" + (is64BitOS ? "64" : "32"));
         }
     }
 
