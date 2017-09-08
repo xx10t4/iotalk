@@ -64,22 +64,6 @@
     "extraResources": [
       "lib/**/*"
     ],
-    "dmg": {
-      "iconSize": 125,
-      "contents": [
-        {
-          "x": 235,
-          "y": 290,
-          "type": "link",
-          "path": "/Applications"
-        },
-        {
-          "x": 235,
-          "y": 20,
-          "type": "file"
-        }
-      ]
-    },
     "win": {
       "target": "nsis"
     },
@@ -92,7 +76,10 @@
       ]
     },
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "target": [
+        "tar.gz"
+      ],
+      "category": "public.app-category.social-networking"
     }
   }
 }

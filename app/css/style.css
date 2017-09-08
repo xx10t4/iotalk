@@ -99,6 +99,29 @@ html {
   padding-top: 50px;
 }
 
+.login_section .form-group {
+  position: relative;
+}
+
+.login_section .glyphicon-ok-sign {
+  color: #5cb85c;
+}
+
+.login_section .glyphicon-exclamation-sign {
+  color: rgba(249, 164, 0, 1);
+}
+
+#userSeed {
+  display: inline-block;
+  width: 100%;
+}
+
+#seedChecksum {
+  position: absolute;
+  right: 10px;
+  top: 6px;  
+}
+
 #login-message {
   background-color: #ffe6b3;
   border: solid 1px #2D3142;
@@ -170,7 +193,7 @@ html {
   float: right;
   display: block;
   border-radius: 10px;
-  background-color: rgba(249, 164, 0, 0.95);
+  background-color: rgba(249, 164, 0, 1);
   color: #ffffff;
   font-size: 80%;
   padding: 2px 4px 2px 4px;

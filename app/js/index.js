@@ -1014,7 +1014,41 @@ $(document).ready(function () {
         showMessageList()
     }); 
     
-    
+    $("#userSeed").on("keydown keyup", function(e) {
+        if (e.keyCode == 13 && !$("#login").is(":disabled")) {
+          $("#login").trigger("click");
+        }
+  
+        var seed = $(this).val();
+        $checksum = $("#seedChecksum");
+  
+        $checksum.removeClass();
+  
+        if (!seed) {
+          $checksum.html("<span class='glyphicon glyphicon-question-sign' aria-hidden='true'></span>").attr("title", "");;
+        } else if (seed.match(/[^A-Z9]/) || seed.match(/^[9]+$/)) {
+          $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i>").addClass("invalid icon").attr("title", "Seed is too simple");
+        } else if (seed.length < 81) {
+          $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i> &lt;81").addClass("invalid").show().attr("title", "Seed is too short");
+        } else if (seed.length > 81) {
+          $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i> &gt;81").addClass("invalid").show().attr("title", "Seed is too long");
+        } else {
+          try {
+            var checksum = iota.utils.addChecksum(seed, 3, false).substr(-3);
+            console.log("checksum "+checksum)
+            if (checksum != "999") {
+              $checksum.html("<i class='glyphicon glyphicon-ok-sign' aria-hidden='true'></i> " + checksum).addClass("validChecksum").attr("title", "Seed Checksum");
+            } else {
+              $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i>").addClass("invalid icon").attr("title", "Seed is not valid");
+            }
+          } catch (err) {
+            $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i>").addClass("invalid icon").attr("title", "Seed is not valid");
+          }
+        }
+  
+        seed = "";
+      });
+      
     // Set globals
     var setCurrentAccount = function(account) {
         currentAccount = account

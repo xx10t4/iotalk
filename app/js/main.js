@@ -39,7 +39,7 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 1200, 
     height: 600,
-    icon: path.join(__dirname, '../../images', 'iota-logo-small.png')
+    icon: path.join(__dirname, '../../images', 'iota1k_logo.png')
   })
 
   menu(electron,mainWindow)
