@@ -111,11 +111,6 @@ html {
   color: rgba(249, 164, 0, 1);
 }
 
-#userSeed {
-  display: inline-block;
-  width: 100%;
-}
-
 #seedChecksum {
   position: absolute;
   right: 10px;
