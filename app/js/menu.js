@@ -1,4 +1,5 @@
 const i18n             = require("i18next");
+const {app}            = require('electron')
 
 var buildMenu = function(electron, window) {
     const template = [
@@ -87,7 +88,7 @@ var buildMenu = function(electron, window) {
             label: name,
             submenu: [
             {
-                role: 'about', label: i18n.t('About') + " " + electron.getName()
+                role: 'about', label: i18n.t('About') + " " + name
             },
             {
                 type: 'separator'
@@ -100,7 +101,7 @@ var buildMenu = function(electron, window) {
                 type: 'separator'
             },
             {
-                role: 'hide', label: i18n.t('Hide') + " " + electron.getName()
+                role: 'hide', label: i18n.t('Hide') + " " + name
             },
             {
                 role: 'hideothers', label: i18n.t('Hide others')
@@ -112,7 +113,7 @@ var buildMenu = function(electron, window) {
                 type: 'separator'
             },
             {
-                role: 'quit', label: i18n.t('Quit') + " " + electron.getName()
+                role: 'quit', label: i18n.t('Quit') + " " + name
             }
             ]
         })
