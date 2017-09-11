@@ -1,7 +1,6 @@
 const i18n             = require("i18next");
 const {app}            = require('electron')
 
-
 var buildMenu = function(electron, window) {
     const template = [
         {
