@@ -88,19 +88,6 @@ var buildMenu = function(electron, window) {
             label: name,
             submenu: [
             {
-                role: 'about', label: i18n.t('About') + " " + name
-            },
-            {
-                type: 'separator'
-            },
-            {
-                role: 'services', label: i18n.t('Services'),
-                submenu: []
-            },
-            {
-                type: 'separator'
-            },
-            {
                 role: 'hide', label: i18n.t('Hide') + " " + name
             },
             {
@@ -117,22 +104,6 @@ var buildMenu = function(electron, window) {
             }
             ]
         })
-        template[1].submenu.push(
-            {
-            type: 'separator'
-            },
-            {
-            label: i18n.t('Speech'),
-            submenu: [
-                {
-                role: 'startspeaking', label: i18n.t('Start speaking')
-                },
-                {
-                role: 'stopspeaking', label: i18n.t('Stop speaking')
-                }
-            ]
-            }
-        )
         template[3].submenu = [
             {
             label: i18n.t('Close'),
