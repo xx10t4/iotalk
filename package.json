@@ -30,7 +30,7 @@
   "license": "GPL-3.0",
   "dependencies": {
     "crypto.iota.js": "~0.0.4",
-    "iota.lib.js": "~0.4.0",
+    "iota.lib.js": "~0.4.1",
     "ccurl.interface.js":"~0.0.4",
     "ffi": "^2.2.0",
     "jquery": "~3.2.1",
