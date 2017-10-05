@@ -79,8 +79,7 @@ $(document).ready(function () {
         }
 
         var ccurlPath = getCcurlPath();
-        console.log("ccurlPath: "+ccurlPath)
-
+        
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
             if (error) return callback(error, callbackOptions)
 
@@ -429,8 +428,8 @@ $(document).ready(function () {
         if (error) {
             if(results && results.account) {
                 results.account.status = PUBLICKEY_STATUS_ERROR
-                console.log("addAccountResultsHandler results.account: "+JSON.stringify(results.account))
-                results.message.errorMessage = error.toString()
+                console.log("addAccountResultsHandler error: "+JSON.stringify(error))
+                results.account.errorMessage = error.toString()
             }
         } else {
             if(results && results.account) {
