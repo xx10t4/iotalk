@@ -18,7 +18,7 @@
     "publish:lin": "electron-builder --linux --x64 --ia32 --publish always",
     "publish:mac": "export CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --mac --x64 --publish always",
     "publish:win": "electron-builder --win --x64 --ia32 --publish always"
-    },
+  },
   "repository": "https://github.com/xx10t4/iota1k",
   "keywords": [
     "IOTa1k",
@@ -29,12 +29,12 @@
   "author": "xx10t4 <xx10t4@gmail.com>",
   "license": "GPL-3.0",
   "dependencies": {
-    "crypto.iota.js": "~0.0.4",
-    "iota.lib.js": "~0.4.1",
-    "ccurl.interface.js":"~0.0.4",
+    "iota.crypto.js": "iotaledger/iota.crypto.js",
+    "iota.lib.js": "^0.4.2",
+    "ccurl.interface.js": "~0.0.4",
     "ffi": "^2.2.0",
     "jquery": "~3.2.1",
-    "bootstrap":"~3.3.7",
+    "bootstrap": "~3.3.7",
     "ntru": "~2.0.1",
     "text-encoding": "~0.6.4",
     "fs-extra": "^1.0.0",
@@ -42,11 +42,12 @@
     "i18next": "^8.4.2",
     "i18next-sync-fs-backend": "^0.1.0",
     "pidusage": "^1.1.0",
-    "request":"~2.81.0",
-    "lokijs":"~1.5.0"
+    "request": "~2.81.0",
+    "lokijs": "~1.5.0",
+    "babel-polyfill": "~6.26.0"
   },
   "devDependencies": {
-    "electron": "1.7.4",
+    "electron": "1.8.2-beta.2",
     "electron-builder": "^19.19.1",
     "electron-rebuild": "1.6.0",
     "follow-redirects": "^1.2.4",

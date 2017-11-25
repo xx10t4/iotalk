@@ -22,8 +22,11 @@ $(document).ready(function () {
 
     const electron = require('electron')
     const app = electron.app
+    //const Mam = require("./mam.node.js")
+   // var Mam = require('./mam.index.js')
     const IOTA = require('iota.lib.js');
-    const Crypto = require('crypto.iota.js');
+
+    const Crypto = require('iota.crypto.js');
     const ccurlInterface = require('ccurl.interface.js')
     const ntru = require('ntru');
     const fs = require("fs");
@@ -49,10 +52,10 @@ $(document).ready(function () {
     // global state
     var currentAccount;
     var currentContact;
-    var newContacts = []; // holds contacts tied to new messages not seen before 
-    var newMessages = []; // holds new messages not seen before 
+    var newContacts = []; // holds contacts tied to new messages not seen before
+    var newMessages = []; // holds new messages not seen before
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
-    var minWeightMagnitude = 15;
+    var minWeightMagnitude = 14;
     var tangleDepth = 4;
     const MESSAGE_CHECK_FREQUENCY = 20 // seconds
     const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
@@ -79,14 +82,27 @@ $(document).ready(function () {
         }
 
         var ccurlPath = getCcurlPath();
-        
+
         iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
             if (error) return callback(error, callbackOptions)
+
+            // Workaround to fix IRI bug https://github.com/iotaledger/iri/pull/340
+            // Make sure transaction.tag == transaction.obsoleteTag
+            var transactions = trytes.map(function (transactionTrytes) {
+                return iota.utils.transactionObject(transactionTrytes);
+            });
+            for(var i = 0; i < transactions.length ; i++) {
+                transactions[i].obsoleteTag = transactions[i].tag
+            }
+            trytes = transactions.map(function(transactionObject) {
+                return iota.utils.transactionTrytes(transactionObject)
+            })
+            // END workaround
 
             iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
                 if (error) return callback(error, callbackOptions)
 
-                ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {                    
+                ccurlInterface(toApprove.trunkTransaction, toApprove.branchTransaction, minWeightMagnitude, trytes, ccurlPath, function (error, attached) {
                     if (error) return callback(error, callbackOptions)
 
                     iota.api.storeTransactions(attached, function (error, success) {
@@ -119,14 +135,14 @@ $(document).ready(function () {
                 var privateKey = newKeyPair.privateKey.toString();
                 var publicKey = newKeyPair.publicKey.toString();
                 var username = getKeyUsername({ name: name, publicKey: publicKey });
-                var fingerprint = createPublicKeyFinderprint(publicKey)
+                var fingerprint = createFinderprint(publicKey)
 
                 var account = {
                     privateKey: privateKey,
                     publicKey: publicKey,
                     name: name,
                     address: address,
-                    fingerprint: fingerprint, 
+                    fingerprint: fingerprint,
                 }
                 accountsStore.insert(account);
                 sendAccount(account)
@@ -143,50 +159,52 @@ $(document).ready(function () {
             fingerprint: account.fingerprint,
             name: account.name,
         }
-        
+
         var transfer = [{
             'address': account.address,
             'value': parseInt(value),
             'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
             'tag': getPublicKeyTag(publicKeyMessage.publicKey)
         }]
-    
+
         account.status = PUBLICKEY_STATUS_SENDING
         accountsStore.update(account)
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
-        showAccountsList();                
+        showAccountsList();
     }
 
     /*
         retrieves a public key by fingerprint tag from the tangle
-    */ 
+    */
     var getPublicKey = function(tag, callback) {
         iota.api.findTransactions({ tags: [tag] }, function (error, result) {
-        
+
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
                 return callback({status: PUBLICKEY_STATUS_NOT_FOUND});
             } else {
-        
+
                 iota.api.getTrytes(result, function (error, trytes) {
-        
+
                     if (error) {
                         return callback(error);
                     } else {
                         var transactions = trytes.map(function (transactionTrytes) {
                             return iota.utils.transactionObject(transactionTrytes);
                         });
-                        
+
                         var bundles = sortToBundles(transactions)
                         var publicKeys = []
                         Object.keys(bundles).forEach(function(key, idx){
                             var publicKey = getBundleMessage(bundles[key])
-                            publicKey.address = bundles[key][0].address
-                            if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
-                                publicKeys.push(publicKey);
-                            } 
-                        })                        
+                            if(publicKey){
+                                publicKey.address = bundles[key][0].address
+                                if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
+                                    publicKeys.push(publicKey);
+                                }
+                            }
+                        })
                         return callback(null, publicKeys);
                     }
                 });
@@ -205,7 +223,7 @@ $(document).ready(function () {
             - create a new address for this message's replyAddress
         */
         var toAddress = toContact.address
-        var replyAddress = fromAccount.address 
+        var replyAddress = fromAccount.address
 
         var message = {
             text: messageText,
@@ -214,8 +232,9 @@ $(document).ready(function () {
             address: toAddress,
             replyAddress: replyAddress,
        }
-        messagesStore.insert(message)
-        sendMessage(message)
+       // messagesStore.insert(message)
+       // sendMessage(message)
+       createMamMessage(toContact, fromAccount, messageText)
     }
 
     /*
@@ -230,24 +249,24 @@ $(document).ready(function () {
             body: encrypt(message.text, publicKey),
             replyAddress: encrypt(message.replyAddress, publicKey)
         }
-        
+
         var transfer = [{
             'address': message.address,
             'value': 0,
             'message': iota.utils.toTrytes(JSON.stringify(tangleMessage)),
             'tag': IOTALKMESSAGE_TAG
         }]
-   
+
         message.status = PUBLICKEY_STATUS_SENDING
         message.timestamp = dateToTimestamp()
         messagesStore.update(message)
 
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: message})
-        showMessageList();                
+        showMessageList();
     }
 
     var getMessages = function(addresses, callback) {
-        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {            
+        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
@@ -264,10 +283,13 @@ $(document).ready(function () {
                         var bundles = sortToBundles(transactions)
                         var messages = []
                         Object.keys(bundles).forEach(function(bundleHash){
-                            var message = getBundleMessage(bundles[bundleHash])
-                            message.timestamp = bundles[bundleHash][0].timestamp
-                            message.address = bundles[bundleHash][0].address 
-                            messages.push(message)
+                            var bundle = bundles[bundleHash]
+                            var message = getBundleMessage(bundle)
+                            if(message){
+                                message.timestamp = bundle[0].timestamp
+                                message.address = bundle[0].address
+                                messages.push(message)
+                            }
                         })
                         return callback(null, messages);
                     }
@@ -276,6 +298,36 @@ $(document).ready(function () {
         });
         iota.api.getNodeInfo(function (error, results) {})
     }
+
+    var createMamMessage = function(toContact, fromAccount, message) {
+        var security = 1;
+
+
+       /* let mam = Mam.init(iota)
+
+
+        const publish = async packet => {
+            // Create MAM Payload - STRING OF TRYTES
+            var message = Mam.create(mamState, packet)
+            // Save new mamState
+            mamState = message.state
+            // Attach the payload.
+            console.log('Root: ', message.root)
+            console.log('Address: ', message.address)
+            console.log('message.payload: ', message.payload)
+            await Mam.attach(message.payload, message.address)
+
+            // Fetch Stream Async to Test
+            var resp = await Mam.fetch(message.root, 'public', null, console.log)
+            console.log(resp)
+        }
+
+*/
+
+
+
+    }
+
 
     /*
         Returns an array of tangle addresses for inbound messages to any of the accounts
@@ -301,7 +353,7 @@ $(document).ready(function () {
             }
         })
 
-        return addresses 
+        return addresses
      }
 
     /*
@@ -316,8 +368,8 @@ $(document).ready(function () {
             if(addresses.indexOf(address) < 0){
                 addresses.push(address)
             }
-        })       
-        return addresses 
+        })
+        return addresses
      }
 
     var sortToBundles = function(transactions) {
@@ -335,6 +387,11 @@ $(document).ready(function () {
     }
 
     var getBundleMessage = function(bundle) {
+
+        if(!bundle[0]) {
+            // if no transaction at index 0, then this is a bad bundle. Likely corrutpted  by a Tangle snapshot
+            return '';
+        }
         var messageTrytes = ''
         bundle.forEach(function (transaction, idx) {
             messageTrytes += transaction.signatureMessageFragment;
@@ -352,8 +409,12 @@ $(document).ready(function () {
         }
     }
 
+    var log = function(object){
+        console.log(object+ ": "+JSON.stringify(object));
+    }
+
     var refreshAccountKeys = function() {
-        accountsStore.all().forEach(function (account, idx) {           
+        accountsStore.all().forEach(function (account, idx) {
             getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
                 setStatus(error, publicKeys, account)
                 accountsStore.update(account)
@@ -367,12 +428,12 @@ $(document).ready(function () {
         }
     }
 
-    var refreshContactKeys = function() {         
-        contactsStore.all().forEach(function (contact, idx) {           
+    var refreshContactKeys = function() {
+        contactsStore.all().forEach(function (contact, idx) {
             getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
-                setStatus(error, publicKeys, contact)                    
+                setStatus(error, publicKeys, contact)
                 contactsStore.update(contact)
-                showContactsList() 
+                showContactsList()
             })
         })
         if( contactsStore.all().length == 1) {
@@ -395,7 +456,7 @@ $(document).ready(function () {
         })
     }
 
-    /* 
+    /*
         set status and statusMessage on contact or account record
     */
     var setStatus = function(error, publicKeys, user) {
@@ -409,16 +470,14 @@ $(document).ready(function () {
                 user.statusMessage = error.toString()
             }
         } else {
-            if(publicKeys.length < 1) { 
+            if(publicKeys.length < 1) {
                 user.status = PUBLICKEY_STATUS_NOT_FOUND
-            }
-            if(publicKeys.length > 1) { 
+            } else if(publicKeys.length > 1) {
                 user.status = PUBLICKEY_STATUS_MULTIPLE_FOUND
-            }
-            if(publicKeys[0].fingerprint != user.fingerprint) { 
+            } else if(publicKeys[0].fingerprint != user.fingerprint) {
                 user.status = PUBLICKEY_STATUS_BAD_FINGERPRINT
             }
-        } 
+        }
     }
 
     /*
@@ -440,7 +499,7 @@ $(document).ready(function () {
         showAccountsList()
     }
 
-    var sendMessageResultsHandler = function(error, results) {          
+    var sendMessageResultsHandler = function(error, results) {
         if (error) {
             console.log("sendMessageResultsHandler error: "+JSON.stringify(error))
             if(results && results.message) {
@@ -465,7 +524,7 @@ $(document).ready(function () {
                 var message = messages[i]
                 if(message.to){
                     var account = getAccount(message.to)
-                    if(account) {                
+                    if(account) {
                         var from = decrypt(message.from, account.privateKey).text
                         if(from !== undefined) {
                             var existingContact = getContact(from)
@@ -480,7 +539,7 @@ $(document).ready(function () {
                                 }
                             } else {
                                 newContacts[from] = newContacts[from] ? newContacts[from] : []
-                                newContacts[from].push(message)                                
+                                newContacts[from].push(message)
                             }
                         }
                     }
@@ -502,10 +561,10 @@ $(document).ready(function () {
                                 contact.newMessages += 1
                                 contactsStore.update(contact)
                             }
-                        }  
+                        }
                         showContactsList()
                     }
-                })   
+                })
             }
         }
     }
@@ -566,9 +625,9 @@ $(document).ready(function () {
                 if(exists.length === 0){
                     publicKey.newMessages = 0
                     contactsStore.insert(publicKey);
-                } 
-                showContactsList()                  
-            })           
+                }
+                showContactsList()
+            })
         }
     }
 
@@ -596,7 +655,7 @@ $(document).ready(function () {
     The first 27 trytes of a public key fingerprint. Intended for use as a tangle transaction tag to make searching for the tag easy.
     */
     var getPublicKeyTag = function(publicKey) {
-        return createPublicKeyFinderprint(publicKey).substr(0, 27);
+        return createFinderprint(publicKey).substr(0, 27);
     }
 
     function getKeyUsername(publicKey) {
@@ -609,12 +668,12 @@ $(document).ready(function () {
 
 
     /*
-    Creates a 81 tryte hash of a public key. Intended for use as a fingerprint of the public key
+    Creates a 81 tryte hash of the input.toString(). Intended for use as a fingerprint of a public key or a seed for a MAM channel
     */
-    var createPublicKeyFinderprint = function(publicKey) {
+    var createFinderprint = function(input) {
         const curl = new Crypto.curl();
         const hash = new Int8Array(243); //81 trytes TODO determine if this is long enough to be a secure fingerprint
-        const messageTrits = Crypto.converter.trits(iota.utils.toTrytes(publicKey.toString()));
+        const messageTrits = Crypto.converter.trits(iota.utils.toTrytes(input.toString()));
         curl.initialize();
         curl.absorb(messageTrits, 0, messageTrits.length);
         curl.squeeze(hash, 0, hash.length);
@@ -626,7 +685,7 @@ $(document).ready(function () {
     Returns boolean about whether the given fingerprint matches the given publicKey
     */
     var validatePublicKey = function(publicKey, fingerprint) {
-        return createPublicKeyFinderprint(publicKey) === fingerprint
+        return createFinderprint(publicKey) === fingerprint
     }
 
 
@@ -661,7 +720,7 @@ $(document).ready(function () {
             $('#accountsList').empty()
             accounts.forEach(function (account) {
                 var tag = getPublicKeyTag(account.publicKey)
-                var userName = getKeyUsername(account) 
+                var userName = getKeyUsername(account)
                 var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                 var item
                 var labelClass = account.fingerprint == currentAccount.fingerprint ? "current" : ""
@@ -672,7 +731,7 @@ $(document).ready(function () {
                 } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
                     item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> not found. <input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 } else {
-                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> has a problem: '+account.status+'</span>'
+                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> has a problem: '+account.status+'</span><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 }
                 $('#accountsList').append('<li id="'+ tag +'">' + item + '</li>')
             });
@@ -696,7 +755,7 @@ $(document).ready(function () {
                     } else if(contact.newMessages > 0) {
                         icon = '<span class="new-messages">'+contact.newMessages+'</span>'
                     }
-                    var newMessageCount = contact.newMessages 
+                    var newMessageCount = contact.newMessages
                     $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' ' + icon + '</label></li>')
                 } else {
                     var fingerprint = contact.fingerprint
@@ -725,7 +784,7 @@ $(document).ready(function () {
                 var inbound = message.from === currentContact.fingerprint
                 var from = message.from === currentAccount.fingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
                 if(from){
-                    from = getKeyUsername(from) 
+                    from = getKeyUsername(from)
                 }
                 var messageId = message.$loki
                 var deleteButton = '<input type="radio" name="message" id="deleteMessage' + messageId + '" value="'+ messageId +'"><a class="deleteMessage"><span class="glyphicon glyphicon-trash" aria-hidden="true"></span></a>'
@@ -739,7 +798,7 @@ $(document).ready(function () {
                 } else {
                     info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span>error sending message.</span> ' + deleteButton
                 }
-                
+
                 var scrollId = 'scrollTo' + messageId
 
                 messagesList.append('<li class="message" id="'+ scrollId +'"><b>' + from + '</b> '+info+ '<br />'+message.text+'</li>')
@@ -757,7 +816,7 @@ $(document).ready(function () {
 
     var hideAlerts = function() {
         $("#alertsHolder").html('');
-    } 
+    }
 
     var validateSeed = function(value) {
         var result = { "valid": true, "message": "" }
@@ -800,13 +859,13 @@ $(document).ready(function () {
                     messagesStore = new MessagesStore(seed, createDatastoreFilename('messages', address), function(){
                         accountsStore = new AccountsStore(seed, createDatastoreFilename('accounts', address), function(){
                             contactsStore = new ContactsStore(seed, createDatastoreFilename('contacts', address), afterDataStoresInitialized)
-                        })                
+                        })
                     })
-                })              
+                })
             }
-        })       
+        })
     }
-    
+
     /*
         callback to do stuff after all dataStores have been intialized
     */
@@ -832,11 +891,11 @@ $(document).ready(function () {
             });
             iota.api.getNodeInfo(function (error, results) {
                 if(error || !results) {
-                    showAlert('warning', node_address + ' returned an error. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.')    
+                    showAlert('warning', node_address + ' returned an error. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.')
                 } else if(results.latestMilestoneIndex !== results.latestSolidSubtangleMilestoneIndex) {
-                    showAlert('warning', node_address + ' is not fully synced. You may not be able to send messages.')    
+                    showAlert('warning', node_address + ' is not fully synced. You may not be able to send messages.')
                 } else {
-                    showAlert('success', 'Node configuration is complete.')    
+                    showAlert('success', 'Node configuration is complete.')
                 }
             })
         }
@@ -857,8 +916,8 @@ $(document).ready(function () {
         var is64BitOS = process.arch == "x64";
         // TODO find a better way to manage packaged vs unpackaged file paths
         var isDev = process.env.NODE_ENV === 'development'
-        var base_path = isDev ? path.join(electron.remote.app.getAppPath(), "lib", "ccurl") : 
-                            path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl")    
+        var base_path = isDev ? path.join(electron.remote.app.getAppPath(), "lib", "ccurl") :
+                            path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl")
         if (process.platform == "win32") {
             return path.join(base_path, "win" + (is64BitOS ? "64" : "32"));
         } else if (process.platform == "darwin") {
@@ -912,14 +971,14 @@ $(document).ready(function () {
             'node_address',
             'node_port'
         ].forEach(function(key, idx, keys){
-            var config = configuration.get(key)            
+            var config = configuration.get(key)
             config.value = $("#config_"+key).val()
             configuration.set(config)
             if(idx === (keys.length - 1)){
                 // after last config is saved, redo initialization
                 initConfiguration()
             }
-        }) 
+        })
     })
 
     $('#contactsList').on('click','label',function() {
@@ -929,7 +988,7 @@ $(document).ready(function () {
 
     $('#contactsList').on('click','a.delete',function(event) {
         var username = $(this).prev().val()
-        var contact = getContact(username.split('@')[1])       
+        var contact = getContact(username.split('@')[1])
         var messages = messagesStore.find({
             '$or': [
                 {from: { '$in' :[contact.fingerprint]}},
@@ -951,7 +1010,7 @@ $(document).ready(function () {
     $('#deletedContactsList').on('click','button.unblock',function(event) {
         var fingerprint = $(this).prev().val()
         console.log("fingerp: "+fingerprint)
-        var contact = getContact(fingerprint)       
+        var contact = getContact(fingerprint)
         contactsStore.remove(contact)
         showContactsList()
     });
@@ -963,7 +1022,7 @@ $(document).ready(function () {
 
     $('#accountsList').on('click','a.delete',function(event) {
         var username = $(this).prev().val()
-        var contact = getAccount(username.split('@')[1])       
+        var contact = getAccount(username.split('@')[1])
         var messages = messagesStore.find({
             '$or': [
                 {from: { '$in' :[contact.fingerprint]}},
@@ -987,17 +1046,17 @@ $(document).ready(function () {
         sendAccount(currentAccount)
         showMessageList();
     });
-    
+
     $("#send_message").on("click", function () {
         var message = $("#message").val();
         $("#message").val('');
         if(message.match(/^\s*$/)) {
             showAlert('warning',"Message is blank!")
         } else if(!(currentAccount && currentContact)) {
-            showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")            
+            showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")
         } else {
             createMessage(message, currentAccount, currentContact)
-        }        
+        }
     })
 
     $('#messagesList').on('click','button.retry',function() {
@@ -1006,23 +1065,23 @@ $(document).ready(function () {
         // TODO check and handle cases where results.length != 1
         sendMessage(results[0])
     });
-    
+
     $('#messagesList').on('click','a.deleteMessage',function() {
         var messageId = $(this).prev().val()
         messagesStore.remove(messagesStore.find({$loki: parseInt(messageId)}))
         showMessageList()
-    }); 
-    
+    });
+
     $("#userSeed").on("keydown keyup", function(e) {
         if (e.keyCode == 13 && !$("#login").is(":disabled")) {
           $("#login").trigger("click");
         }
-  
+
         var seed = $(this).val();
         $checksum = $("#seedChecksum");
-  
+
         $checksum.removeClass();
-  
+
         if (!seed) {
           $checksum.html("<span class='glyphicon glyphicon-question-sign' aria-hidden='true'></span>").attr("title", "");;
         } else if (seed.match(/[^A-Z9]/) || seed.match(/^[9]+$/)) {
@@ -1034,7 +1093,6 @@ $(document).ready(function () {
         } else {
           try {
             var checksum = iota.utils.addChecksum(seed, 3, false).substr(-3);
-            console.log("checksum "+checksum)
             if (checksum != "999") {
               $checksum.html("<i class='glyphicon glyphicon-ok-sign' aria-hidden='true'></i> " + checksum).addClass("validChecksum").attr("title", "Seed Checksum");
             } else {
@@ -1044,19 +1102,19 @@ $(document).ready(function () {
             $checksum.html("<i class='glyphicon glyphicon-exclamation-sign' aria-hidden='true'></i>").addClass("invalid icon").attr("title", "Seed is not valid");
           }
         }
-  
+
         seed = "";
       });
-      
+
     // Set globals
     var setCurrentAccount = function(account) {
         currentAccount = account
         if(currentAccount){
             var tag = getPublicKeyTag(currentAccount.publicKey)
-            $('#accountsList label').removeClass("current")   
+            $('#accountsList label').removeClass("current")
             $('#accountLabel'+tag).addClass("current")
         }
-        showMessageList()        
+        showMessageList()
     }
 
     var setCurrentContact = function(contact) {
@@ -1065,12 +1123,12 @@ $(document).ready(function () {
             currentContact.newMessages = 0
             contactsStore.update(currentContact)
             var tag = getPublicKeyTag(currentContact.publicKey)
-            $('#contactsList label').removeClass("current")   
+            $('#contactsList label').removeClass("current")
             $('#newContactsList label').removeClass("current")
             $('#contactLabel'+tag).addClass("current")
         }
         showContactsList()
-        showMessageList()        
+        showMessageList()
     }
 
     // Utilities
@@ -1097,13 +1155,13 @@ $(document).ready(function () {
     var formatTimestamp = function(timestamp) {
         if(timestamp !== undefined) {
             var date = timestampToDate(timestamp)
-            if((new Date().getTime() - date.getTime()) > 1000*3600*12){ 
+            if((new Date().getTime() - date.getTime()) > 1000*3600*12){
                 // if more tha 12 hours ago, include date in display
                 return date.toLocaleString().toLowerCase()
             } else {
                 // otherwise just display the time
                 return date.toLocaleTimeString().toLowerCase()
-            }           
+            }
         }
         return ''
     }
