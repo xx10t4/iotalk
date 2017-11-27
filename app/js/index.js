@@ -22,9 +22,8 @@ $(document).ready(function () {
 
     const electron = require('electron')
     const app = electron.app
-    //const Mam = require("./mam.node.js")
-   // var Mam = require('./mam.index.js')
-    const IOTA = require('iota.lib.js');
+    var Mam = require("./mam.node.js")
+    var IOTA = require('iota.lib.js');
 
     const Crypto = require('iota.crypto.js');
     const ccurlInterface = require('ccurl.interface.js')
@@ -58,14 +57,13 @@ $(document).ready(function () {
     var minWeightMagnitude = 14;
     var tangleDepth = 4;
     const MESSAGE_CHECK_FREQUENCY = 20 // seconds
-    const IOTALKMESSAGE_TAG = 'IOTALKMESSAGE99999999999999'
 
     // status codes for account and contact public keys
     const PUBLICKEY_STATUS_OK = 'ok'
     const PUBLICKEY_STATUS_NOT_FOUND = 'not_found'
     const PUBLICKEY_STATUS_MULTIPLE_FOUND = 'multiple_found'
     const PUBLICKEY_STATUS_ERROR = 'error'
-    const PUBLICKEY_STATUS_BAD_FINGERPRINT = 'bad_fingerprint'
+    const PUBLICKEY_STATUS_BAD_ADDRESS = 'bad_address'
     const PUBLICKEY_STATUS_SENDING = 'sending'
 
     // status codes for outgoing messages
@@ -134,15 +132,13 @@ $(document).ready(function () {
                 var newKeyPair = createKeyPair();
                 var privateKey = newKeyPair.privateKey.toString();
                 var publicKey = newKeyPair.publicKey.toString();
-                var username = getKeyUsername({ name: name, publicKey: publicKey });
-                var fingerprint = createFinderprint(publicKey)
+                var address = createFingerprint(publicKey)
 
                 var account = {
                     privateKey: privateKey,
                     publicKey: publicKey,
                     name: name,
-                    address: address,
-                    fingerprint: fingerprint,
+                    address: address
                 }
                 accountsStore.insert(account);
                 sendAccount(account)
@@ -156,15 +152,13 @@ $(document).ready(function () {
     var sendAccount = function(account) {
         var publicKeyMessage = {
             publicKey: account.publicKey,
-            fingerprint: account.fingerprint,
             name: account.name,
         }
 
         var transfer = [{
             'address': account.address,
             'value': parseInt(value),
-            'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
-            'tag': getPublicKeyTag(publicKeyMessage.publicKey)
+            'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage))
         }]
 
         account.status = PUBLICKEY_STATUS_SENDING
@@ -174,11 +168,10 @@ $(document).ready(function () {
     }
 
     /*
-        retrieves a public key by fingerprint tag from the tangle
+        retrieves a public key by address from the tangle
     */
-    var getPublicKey = function(tag, callback) {
-        iota.api.findTransactions({ tags: [tag] }, function (error, result) {
-
+    var getPublicKey = function(address, callback) {
+        iota.api.findTransactions({ addresses: [address] }, function (error, result) {
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
@@ -196,12 +189,14 @@ $(document).ready(function () {
 
                         var bundles = sortToBundles(transactions)
                         var publicKeys = []
+                        var seenAddresses = []
                         Object.keys(bundles).forEach(function(key, idx){
                             var publicKey = getBundleMessage(bundles[key])
                             if(publicKey){
                                 publicKey.address = bundles[key][0].address
-                                if (publicKey.publicKey && publicKey.fingerprint && validatePublicKey(publicKey.publicKey, publicKey.fingerprint) && getPublicKeyTag(publicKey.publicKey) === tag) {
+                                if (publicKey.publicKey && validatePublicKey(publicKey.publicKey, publicKey.address) && seenAddresses.indexOf(publicKey.address) < 0) {
                                     publicKeys.push(publicKey);
+                                    seenAddresses.push(publicKey.address)
                                 }
                             }
                         })
@@ -218,17 +213,13 @@ $(document).ready(function () {
     */
     var createMessage = function(messageText, fromAccount, toContact) {
 
-        /* TODO address cycling
-            - send to the contact's most recent message replyAddress, if there is one, instead of the contact's public key address
-            - create a new address for this message's replyAddress
-        */
         var toAddress = toContact.address
         var replyAddress = fromAccount.address
 
         var message = {
             text: messageText,
-            to: toContact.fingerprint,
-            from: fromAccount.fingerprint,
+            to: toContact.address,
+            from: fromAccount.address,
             address: toAddress,
             replyAddress: replyAddress,
        }
@@ -253,8 +244,7 @@ $(document).ready(function () {
         var transfer = [{
             'address': message.address,
             'value': 0,
-            'message': iota.utils.toTrytes(JSON.stringify(tangleMessage)),
-            'tag': IOTALKMESSAGE_TAG
+            'message': iota.utils.toTrytes(JSON.stringify(tangleMessage))
         }]
 
         message.status = PUBLICKEY_STATUS_SENDING
@@ -266,12 +256,12 @@ $(document).ready(function () {
     }
 
     var getMessages = function(addresses, callback) {
-        iota.api.findTransactions({ tags: [IOTALKMESSAGE_TAG], addresses: addresses}, function (error, result) {
+        iota.api.findTransactions({ addresses: addresses}, function (error, result) {
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
                 // handle empty results
-                return callback("no results in findTransactions callback for tag "+ IOTALKMESSAGE_TAG);
+                return callback("no results in findTransactions callback for addresses "+ JSON.stringify(addresses));
             } else {
                 iota.api.getTrytes(result, function (error, trytes) {
                     if (error) {
@@ -301,9 +291,9 @@ $(document).ready(function () {
 
     var createMamMessage = function(toContact, fromAccount, message) {
         var security = 1;
+        console.log('createMamMessage start')
 
-
-       /* let mam = Mam.init(iota)
+        let mamState = Mam.init(iota)
 
 
         const publish = async packet => {
@@ -322,9 +312,8 @@ $(document).ready(function () {
             console.log(resp)
         }
 
-*/
 
-
+        publish("ZZZXXXX")
 
     }
 
@@ -334,17 +323,15 @@ $(document).ready(function () {
     */
     var getInboundMessageAddresses = function() {
         var addresses = []
-        var fingerprints = []
         // get addresses associated with account keys
         accountsStore.all().forEach(function(account) {
             var address = account.address
             if(addresses.indexOf(address) < 0){
                 addresses.push(address)
             }
-            fingerprints.push(account.fingerprint)
         })
         var messages = messagesStore.find({
-            from: { '$in' : fingerprints}
+            from: { '$in' : addresses}
         })
         messages.forEach(function(message){
             address = message.replyAddress
@@ -415,14 +402,14 @@ $(document).ready(function () {
 
     var refreshAccountKeys = function() {
         accountsStore.all().forEach(function (account, idx) {
-            getPublicKey(getPublicKeyTag(account.publicKey), function(error, publicKeys){
+            getPublicKey(account.address, function(error, publicKeys){
                 setStatus(error, publicKeys, account)
                 accountsStore.update(account)
                 showAccountsList()
             })
         })
         if(accountsStore.all().length == 1) {
-            getPublicKey(getPublicKeyTag(accountsStore.all()[0].publicKey), function(error, publicKey){
+            getPublicKey(getPublicKeyLabel(accountsStore.all()[0].publicKey), function(error, publicKey){
                 // only called because of request bug that hangs sometimes
             })
         }
@@ -430,14 +417,14 @@ $(document).ready(function () {
 
     var refreshContactKeys = function() {
         contactsStore.all().forEach(function (contact, idx) {
-            getPublicKey(getPublicKeyTag(contact.publicKey), function(error, publicKeys){
+            getPublicKey(contact.address, function(error, publicKeys){
                 setStatus(error, publicKeys, contact)
                 contactsStore.update(contact)
                 showContactsList()
             })
         })
         if( contactsStore.all().length == 1) {
-            getPublicKey(getPublicKeyTag(  contactsStore.all()[0].publicKey), function(error, publicKey){
+            getPublicKey(getPublicKeyLabel(  contactsStore.all()[0].publicKey), function(error, publicKey){
                 // only called because of request bug that hangs sometimes
             })
         }
@@ -474,8 +461,8 @@ $(document).ready(function () {
                 user.status = PUBLICKEY_STATUS_NOT_FOUND
             } else if(publicKeys.length > 1) {
                 user.status = PUBLICKEY_STATUS_MULTIPLE_FOUND
-            } else if(publicKeys[0].fingerprint != user.fingerprint) {
-                user.status = PUBLICKEY_STATUS_BAD_FINGERPRINT
+            } else if(publicKeys[0].address != user.address) {
+                user.status = PUBLICKEY_STATUS_BAD_ADDRESS
             }
         }
     }
@@ -550,9 +537,8 @@ $(document).ready(function () {
                 var tag = from.substr(0,27)
                 getPublicKey(tag, function(error, publicKeys){
                     addContactResultHandler(error, publicKeys)
-                    if(!error && publicKeys && publicKeys[0].fingerprint === from){
+                    if(!error && publicKeys && publicKeys[0].address === from){
                         var messages = newContacts[from]
-                        console.log("messages:"+JSON.stringify(messages))
                         var contact = getContact(from)
                         for(var i = 0; i < messages.length; i++) {
                             message = messages[i]
@@ -631,48 +617,43 @@ $(document).ready(function () {
         }
     }
 
-    var getAccount = function(tagOrFingerprint) {
+    var getAccount = function(address) {
         var found = accountsStore.find({
-            fingerprint: { '$regex': tagOrFingerprint }
+            address: { '$regex': address }
         })
         if(found.length !== 1){
-            console.log("warning: found "+found.length+" accounts for "+tagOrFingerprint)
+            console.log("warning: found "+found.length+" accounts for "+address)
         }
         return found[0]
     }
 
-    var getContact = function(tagOrFingerprint) {
+    var getContact = function(address) {
         var found = contactsStore.find({
-            fingerprint: { '$regex': tagOrFingerprint }
+            address: { '$regex': address }
         })
         if(found.length !== 1){
-            console.log("warning: found "+found.length+" contacts for "+tagOrFingerprint)
+            console.log("warning: found "+found.length+" contacts for "+address)
         }
         return found[0]
     }
 
     /*
-    The first 27 trytes of a public key fingerprint. Intended for use as a tangle transaction tag to make searching for the tag easy.
+    The first 27 trytes of a public key address.
     */
-    var getPublicKeyTag = function(publicKey) {
-        return createFinderprint(publicKey).substr(0, 27);
+    var getPublicKeyLabel = function(publicKey) {
+        return createFingerprint(publicKey);
     }
 
     function getKeyUsername(publicKey) {
-        return publicKey.name + '@' + getPublicKeyTag(publicKey.publicKey)
+        return publicKey.name + '@' + getPublicKeyLabel(publicKey.publicKey)
     }
-
-    function getFingerprintUsername(publicKey) {
-        return (publicKey.name || '') + '@' + (publicKey.fingerprint || '').substr(0, 27)
-    }
-
 
     /*
-    Creates a 81 tryte hash of the input.toString(). Intended for use as a fingerprint of a public key or a seed for a MAM channel
+    Creates a 81 tryte hash of the input.toString(). Intended for use as the address of a public key or a seed for a MAM channel
     */
-    var createFinderprint = function(input) {
+    var createFingerprint = function(input) {
         const curl = new Crypto.curl();
-        const hash = new Int8Array(243); //81 trytes TODO determine if this is long enough to be a secure fingerprint
+        const hash = new Int8Array(243);
         const messageTrits = Crypto.converter.trits(iota.utils.toTrytes(input.toString()));
         curl.initialize();
         curl.absorb(messageTrits, 0, messageTrits.length);
@@ -682,10 +663,10 @@ $(document).ready(function () {
     }
 
     /*
-    Returns boolean about whether the given fingerprint matches the given publicKey
+    Returns boolean about whether the given address matches the given publicKey
     */
-    var validatePublicKey = function(publicKey, fingerprint) {
-        return createFinderprint(publicKey) === fingerprint
+    var validatePublicKey = function(publicKey, address) {
+        return createFingerprint(publicKey) === address
     }
 
 
@@ -719,11 +700,11 @@ $(document).ready(function () {
             }
             $('#accountsList').empty()
             accounts.forEach(function (account) {
-                var tag = getPublicKeyTag(account.publicKey)
+                var tag = getPublicKeyLabel(account.publicKey)
                 var userName = getKeyUsername(account)
                 var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                 var item
-                var labelClass = account.fingerprint == currentAccount.fingerprint ? "current" : ""
+                var labelClass = account.address == currentAccount.address ? "current" : ""
                 if(account.status === PUBLICKEY_STATUS_OK) {
                     item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label id="accountLabel'+tag+'" class="'+labelClass+'" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
                 } else if(account.status === PUBLICKEY_STATUS_SENDING) {
@@ -745,11 +726,11 @@ $(document).ready(function () {
         if(contacts && contacts.length > 0) {
             contacts.forEach(function (contact) {
                 if(!contact.deleted && !contact.error) {
-                    var tag = getPublicKeyTag(contact.publicKey)
+                    var tag = getPublicKeyLabel(contact.publicKey)
                     var userName = getKeyUsername(contact)
                     var labelClass = ''
                     var icon = ''
-                    if(currentContact && contact.fingerprint == currentContact.fingerprint){
+                    if(currentContact && contact.address == currentContact.address){
                         labelClass = "current"
                         icon = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                     } else if(contact.newMessages > 0) {
@@ -758,9 +739,9 @@ $(document).ready(function () {
                     var newMessageCount = contact.newMessages
                     $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' ' + icon + '</label></li>')
                 } else {
-                    var fingerprint = contact.fingerprint
-                    var userName = getFingerprintUsername(contact)
-                    $('#deletedContactsList').append('<li id="'+ fingerprint +'">' + getFingerprintUsername(contact) + ' <input type="radio" name="fingerprint" id="fingerprint' + fingerprint + '" value="'+ fingerprint +'"><button type="button" class="unblock btn btn-default btn-xs"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Unblock</button></li>')
+                    var address = contact.address
+                    var userName = getKeyUsername(contact)
+                    $('#deletedContactsList').append('<li id="'+ address +'">' + getKeyUsername(contact) + ' <input type="radio" name="address" id="address' + address + '" value="'+ address +'"><button type="button" class="unblock btn btn-default btn-xs"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Unblock</button></li>')
                 }
             });
         }
@@ -769,20 +750,20 @@ $(document).ready(function () {
     var showMessageList = function() {
         if(currentAccount && currentContact) {
             var messages = messagesStore.find({
-                from: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]},
-                to: { '$in' :[currentAccount.fingerprint, currentContact.fingerprint]}
+                from: { '$in' :[currentAccount.address, currentContact.address]},
+                to: { '$in' :[currentAccount.address, currentContact.address]}
             })
             for(var i = 0; i < newMessages.length; i++) {
                 var newMessage = newMessages[i]
-                if(newMessage.from == currentContact.fingerprint){
+                if(newMessage.from == currentContact.address){
                     messages.push(newMessage)
                 }
             }
             var messagesList = $('#messagesList')
             messagesList.empty()
             messages.forEach(function (message) {
-                var inbound = message.from === currentContact.fingerprint
-                var from = message.from === currentAccount.fingerprint ?  currentAccount :  message.from === currentContact.fingerprint ? currentContact : null
+                var inbound = message.from === currentContact.address
+                var from = message.from === currentAccount.address ?  currentAccount :  message.from === currentContact.address ? currentContact : null
                 if(from){
                     from = getKeyUsername(from)
                 }
@@ -991,8 +972,8 @@ $(document).ready(function () {
         var contact = getContact(username.split('@')[1])
         var messages = messagesStore.find({
             '$or': [
-                {from: { '$in' :[contact.fingerprint]}},
-                {to: { '$in' :[contact.fingerprint]}}
+                {from: { '$in' :[contact.address]}},
+                {to: { '$in' :[contact.address]}}
             ]
         })
         var confirmMessage = "Are you sure you want to delete contact "+ username + "?"
@@ -1008,9 +989,8 @@ $(document).ready(function () {
     });
 
     $('#deletedContactsList').on('click','button.unblock',function(event) {
-        var fingerprint = $(this).prev().val()
-        console.log("fingerp: "+fingerprint)
-        var contact = getContact(fingerprint)
+        var address = $(this).prev().val()
+        var contact = getContact(address)
         contactsStore.remove(contact)
         showContactsList()
     });
@@ -1025,8 +1005,8 @@ $(document).ready(function () {
         var contact = getAccount(username.split('@')[1])
         var messages = messagesStore.find({
             '$or': [
-                {from: { '$in' :[contact.fingerprint]}},
-                {to: { '$in' :[contact.fingerprint]}}
+                {from: { '$in' :[contact.address]}},
+                {to: { '$in' :[contact.address]}}
             ]
         })
         var confirmMessage = "Are you sure you want to delete account "+ username + "?"
@@ -1052,8 +1032,8 @@ $(document).ready(function () {
         $("#message").val('');
         if(message.match(/^\s*$/)) {
             showAlert('warning',"Message is blank!")
-        } else if(!(currentAccount && currentContact)) {
-            showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")
+        //} else if(!(currentAccount && currentContact)) {
+        //    showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")
         } else {
             createMessage(message, currentAccount, currentContact)
         }
@@ -1110,7 +1090,7 @@ $(document).ready(function () {
     var setCurrentAccount = function(account) {
         currentAccount = account
         if(currentAccount){
-            var tag = getPublicKeyTag(currentAccount.publicKey)
+            var tag = getPublicKeyLabel(currentAccount.publicKey)
             $('#accountsList label').removeClass("current")
             $('#accountLabel'+tag).addClass("current")
         }
@@ -1122,7 +1102,7 @@ $(document).ready(function () {
             currentContact = contact
             currentContact.newMessages = 0
             contactsStore.update(currentContact)
-            var tag = getPublicKeyTag(currentContact.publicKey)
+            var tag = getPublicKeyLabel(currentContact.publicKey)
             $('#contactsList label').removeClass("current")
             $('#newContactsList label').removeClass("current")
             $('#contactLabel'+tag).addClass("current")

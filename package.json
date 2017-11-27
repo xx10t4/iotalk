@@ -47,7 +47,7 @@
     "babel-polyfill": "~6.26.0"
   },
   "devDependencies": {
-    "electron": "1.8.2-beta.2",
+    "electron": "1.7.4",
     "electron-builder": "^19.19.1",
     "electron-rebuild": "1.6.0",
     "follow-redirects": "^1.2.4",
