@@ -4,7 +4,7 @@
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
-    "start": "export NODE_ENV=development || set NODE_ENV=development && electron .",
+    "start": "export NODE_ENV=development|| set NODE_ENV=development&& electron .",
     "postinstall": "electron-builder install-app-deps",
     "precompile": "rimraf out/*",
     "compile": "export CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --win --mac --linux --x64 --ia32",
