@@ -31,23 +31,23 @@ var configurationStore = function(secret, dbFileName, callback = null) {
             self.config = self.db.addCollection("configuration");
         }
         if(callback) {
-            callback(self)
+            callback()
         }
     }
- 
+
     this.db = new loki(dbFileName, {
         adapter: cryptedFileAdapter,
         autoload: true,
 	    autoloadCallback : databaseInitialize,
-	    autosave: true, 
-	    autosaveInterval: 4000 
+	    autosave: true,
+	    autosaveInterval: 4000
     });
 }
 
 /*
     params = {
         publicKey: "1,3,0,6,16,30,...",  // ntru public key
-        name: "myHandle", 
+        name: "myHandle",
         fingerprint: "ABCD...", // 81 Trytes string generated from publicKey hash
         address: "ABCD...", // Tangle address where public key is stored
     }
@@ -62,7 +62,7 @@ configurationStore.prototype.get = function(key) {
     var query = {key: key}
     var result = this.config.find(query)
     if(result.length === 0) {
-        result = [this.config.insert(query)] 
+        result = [this.config.insert(query)]
     }
     return result[0]
 }

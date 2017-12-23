@@ -31,16 +31,16 @@ var accountsStore = function(secret, dbFileName, callback = null) {
             self.accounts = self.db.addCollection("accounts");
         }
         if(callback) {
-            callback(self)
+            callback()
         }
     }
- 
+
     this.db = new loki(dbFileName, {
         adapter: cryptedFileAdapter,
         autoload: true,
 	    autoloadCallback : databaseInitialize,
-	    autosave: true, 
-	    autosaveInterval: 4000 
+	    autosave: true,
+	    autosaveInterval: 4000
     });
 }
 
@@ -48,7 +48,7 @@ var accountsStore = function(secret, dbFileName, callback = null) {
     params = {
         privateKey: "1,3,0,6,16,30,...",  // ntru private key
         publicKey: "1,3,0,6,16,30,...",  // ntru public key
-        name: "myHandle", 
+        name: "myHandle",
         fingerprint: "ABCD...", // 81 Trytes string generated from publicKey hash
         address: "ABCD...", // Tangle address where public key is stored
     }

@@ -92,7 +92,7 @@ html {
   left: 0px;
   right: 0px;
   margin-top: -75px;
-  height: 75px; 
+  height: 75px;
 }
 
 .login_section {
@@ -114,18 +114,18 @@ html {
 #seedChecksum {
   position: absolute;
   right: 10px;
-  top: 6px;  
+  top: 6px;
 }
 
 #login-message {
   background-color: #ffe6b3;
   border: solid 1px #2D3142;
-  margin: 10px auto;  
+  margin: 10px auto;
 }
 
 #waiting-message {
   text-align: center;
-  margin: 10px auto;  
+  margin: 10px auto;
 }
 
 .verified {
@@ -204,7 +204,7 @@ html {
   color: #ffffff;
 }
 
-.messages-section, .message-input{ 
+.messages-section, .message-input{
   padding: 20px;
 }
 
@@ -246,14 +246,19 @@ li.message .deleteMessage {
 }
 
 #configurationModal .modal-body:first {
-  border-top: none 0px #ffffff; 
+  border-top: none 0px #ffffff;
 }
 
 #configurationModal .modal-body {
   border-top: solid 1px #cccccc;
-  padding-bottom: 30px; 
+  padding-bottom: 30px;
 }
 
 #configurationModal h5{
   color: #999999;
+}
+
+/* toastr overrides */
+.toast-info {
+  background-color: #5cb85c;
 }

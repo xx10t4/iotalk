@@ -31,6 +31,7 @@ $(document).ready(function () {
     const fs = require("fs");
     const codec = require('text-encoding');
     const path = require("path");
+    const toastr = require("toastr")
     const MessagesStore = require("./messages.js")
     const AccountsStore = require("./accounts.js")
     const ContactsStore = require("./contacts.js")
@@ -41,6 +42,7 @@ $(document).ready(function () {
         'host': '',
         'port': 1
     });
+    const DEBUG = true
 
     var seed;
     var messagesStore;
@@ -56,7 +58,7 @@ $(document).ready(function () {
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 14;
     var tangleDepth = 4;
-    const MESSAGE_CHECK_FREQUENCY = 20 // seconds
+    const MESSAGE_CHECK_FREQUENCY = 100000 // seconds
 
     // status codes for account and contact public keys
     const PUBLICKEY_STATUS_OK = 'ok'
@@ -66,11 +68,18 @@ $(document).ready(function () {
     const PUBLICKEY_STATUS_BAD_ADDRESS = 'bad_address'
     const PUBLICKEY_STATUS_SENDING = 'sending'
 
+    // status codes for MAM key exchange
+    const CONTACT_REQUEST_STATUS_PENDING = 'pending'
+    const CONTACT_REQUEST_STATUS_ERROR = 'error'
+    const CONTACT_REQUEST_STATUS_SENT = 'sent'
+    const CONTACT_REQUEST_STATUS_ACCEPTED = 'accepted'
+
     // status codes for outgoing messages
     const MESSAGE_STATUS_SENT = 'sent'
     const MESSAGE_STATUS_NOT_FOUND = 'not_found'
     const MESSAGE_STATUS_ERROR = 'error'
     const MESSAGE_STATUS_SENDING = 'sending'
+    const MAM_ROOT_TAG = 'MAM9ROOT9999999999999999999'
 
     var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
 
@@ -158,7 +167,8 @@ $(document).ready(function () {
         var transfer = [{
             'address': account.address,
             'value': parseInt(value),
-            'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage))
+            'message': iota.utils.toTrytes(JSON.stringify(publicKeyMessage)),
+            'tag': account.address.substr(0,27)
         }]
 
         account.status = PUBLICKEY_STATUS_SENDING
@@ -167,11 +177,49 @@ $(document).ready(function () {
         showAccountsList();
     }
 
+    var initializeContact = function(fromAccount, username) {
+
+        tag = getTagFromUsername(username)
+        getPublicKey(tag, function(error, publicKeys){
+            if(error) {
+                console.log("error: "+error)
+            } else {
+                let contact = null;
+                publicKeys.forEach(function(publicKey){
+                    var exists = contactsStore.find({
+                        publicKey: publicKey.publicKey,
+                        account: fromAccount.address
+                    })
+                    if(exists.length === 0){
+                        publicKey.newMessages = 0
+                        publicKey.account = fromAccount.address
+                        contact = publicKey
+                        contactsStore.insert(publicKey);
+                    } else {
+                        console.log(JSON.stringify(exists))
+                        contact = exists[0]
+                    }
+                })
+                if(contact){
+                    sendContactRequest(fromAccount, contact)
+                }
+            }
+        })
+    }
+
     /*
-        retrieves a public key by address from the tangle
+        retrieves a public key by tag or address from the tangle
     */
-    var getPublicKey = function(address, callback) {
-        iota.api.findTransactions({ addresses: [address] }, function (error, result) {
+    var getPublicKey = function(tagOrAddress, callback) {
+        let searchCriteria = {}
+        if(tagOrAddress.length == 27){
+            searchCriteria['tags'] = [tagOrAddress]
+        } else if(tagOrAddress.length == 81) {
+            searchCriteria['addresses'] = [tagOrAddress]
+        } else {
+            return callback("tagOrAddress must be 27 or 81 chars")
+        }
+        iota.api.findTransactions(searchCriteria, function (error, result) {
             if (error) {
                 return callback(error);
             } else if (result.length == 0) {
@@ -183,22 +231,13 @@ $(document).ready(function () {
                     if (error) {
                         return callback(error);
                     } else {
-                        var transactions = trytes.map(function (transactionTrytes) {
-                            return iota.utils.transactionObject(transactionTrytes);
-                        });
-
-                        var bundles = sortToBundles(transactions)
                         var publicKeys = []
                         var seenAddresses = []
-                        Object.keys(bundles).forEach(function(key, idx){
-                            var publicKey = getBundleMessage(bundles[key])
-                            if(publicKey){
-                                publicKey.address = bundles[key][0].address
-                                if (publicKey.publicKey && validatePublicKey(publicKey.publicKey, publicKey.address) && seenAddresses.indexOf(publicKey.address) < 0) {
-                                    publicKeys.push(publicKey);
-                                    seenAddresses.push(publicKey.address)
+                        messagesFromBundles(trytes).forEach(function(message){
+                            if (message.publicKey && validatePublicKey(message.publicKey, message.address, tagOrAddress) && seenAddresses.indexOf(message.address) < 0) {
+                                publicKeys.push(message);
+                                seenAddresses.push(message.address)
                                 }
-                            }
                         })
                         return callback(null, publicKeys);
                     }
@@ -208,54 +247,145 @@ $(document).ready(function () {
         iota.api.getNodeInfo(function (error, results) {})
     }
 
+    var sendContactRequest = function(fromAccount, toContact) {
+
+        let mamState = Mam.changeMode(Mam.init(iota), 'private')
+        let mamMessage = Mam.create(mamState, 'Initial Message')
+        mamState = mamMessage.state
+
+        var publicKey = toContact.publicKey
+        var fromMamRoot = mamState.channel.next_root
+        var fromAddress = fromAccount.address
+        var tangleMessage = {
+            fromMamRoot: encrypt(fromMamRoot, publicKey),
+            fromAddress: encrypt(fromAddress, publicKey)
+        }
+
+        var transfer = [{
+            address: toContact.address,
+            value: 0,
+            message: iota.utils.toTrytes(JSON.stringify(tangleMessage)),
+            tag: MAM_ROOT_TAG
+        }]
+
+        toContact.status = CONTACT_REQUEST_STATUS_PENDING
+        toContact.mamState = mamState
+        toContact.account = fromAccount.address
+        contactsStore.update(toContact)
+
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendContactRequestResultsHandler, {contact: toContact})
+        showContactsList();
+    }
+
     /*
         creates a new message and sends the public key to the tangle
     */
     var createMessage = function(messageText, fromAccount, toContact) {
 
-        var toAddress = toContact.address
-        var replyAddress = fromAccount.address
+        var messages = messagesStore.find({
+            from: { '$in' :[fromAccount.address]},
+            to: { '$in' :[toContact.address]}
+        })
+        let isFirstMessage = messages.length == 0
 
-        var message = {
+        let mamState
+        if(isFirstMessage){
+            mamState = toContact.mamState
+        } else {
+            mamState = messages[messages.length - 1].mamState
+        }
+        var mamMessage = Mam.create(mamState, messageText)
+
+        var localMessage = {
             text: messageText,
             to: toContact.address,
             from: fromAccount.address,
-            address: toAddress,
-            replyAddress: replyAddress,
+            mamState: mamMessage.state,
+            mamAddress: mamMessage.address,
+            mamRoot: mamMessage.root
        }
-       // messagesStore.insert(message)
-       // sendMessage(message)
-       createMamMessage(toContact, fromAccount, messageText)
+       messagesStore.insert(localMessage)
+       sendMamMessage(mamMessage, localMessage)
     }
 
     /*
         creates a tangle transaction bundle that publishes a message
     */
-    var sendMessage = function(message) {
-
-        var publicKey = getContact(message.to).publicKey
-        var tangleMessage = {
-            to: message.to,
-            from: encrypt(message.from, publicKey),
-            body: encrypt(message.text, publicKey),
-            replyAddress: encrypt(message.replyAddress, publicKey)
-        }
+    var sendMamMessage = function(mamMessage, localMessage) {
 
         var transfer = [{
-            'address': message.address,
+            'address': mamMessage.address,
             'value': 0,
-            'message': iota.utils.toTrytes(JSON.stringify(tangleMessage))
+            'message': mamMessage.payload
         }]
 
-        message.status = PUBLICKEY_STATUS_SENDING
-        message.timestamp = dateToTimestamp()
-        messagesStore.update(message)
+        localMessage.status = PUBLICKEY_STATUS_SENDING
+        localMessage.timestamp = dateToTimestamp()
+        messagesStore.update(localMessage)
 
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: message})
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
         showMessageList();
     }
 
     var getMessages = function(addresses, callback) {
+
+        var mamState = Mam.init(iota)
+
+
+// Init State
+let root = ''
+
+// Initialise MAM State
+var mamState = Mam.init(iota)
+// Set channel mode
+mamState = Mam.changeMode(mamState, 'private')
+console.log('initial State: ', JSON.stringify(mamState))
+
+// Publish to tangle
+const publish = async packet => {
+    // Create MAM Payload - STRING OF TRYTES
+    console.log('---------- ')
+    console.log('MESSAGE: ', packet)
+
+    var message = Mam.create(mamState, packet)
+    // Save new mamState
+    mamState = message.state
+    console.log('Root: ', message.root)
+    console.log('Address: ', message.address)
+    console.log('State: ', JSON.stringify(message.state))
+    // Attach the payload.
+    var transfer = [{
+        address: message.address,
+        value: 0,
+        message: message.payload
+    }]
+
+   // sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMamHandler, {root: message.root})
+}
+
+publish('MESSAGEONE')
+
+publish('MESSAGETWO')
+publish('MESSAGETHREE')
+
+
+
+/*
+
+        Mam.changeMode(mamState, 'private')
+        var mamMessage = Mam.create(mamState, "this is a message")
+
+        var payload = mamMessage.payload
+        var address = mamMessage.address
+        //var root = mamMessage.address
+        var state = mamMessage.state
+        console.log("root "+root)
+        console.log("address"+address)
+        console.log("state "+JSON.stringify(state))
+        console.log("payload" + payload)
+
+       // var m = Mam.decode(payload, null, root )
+       // log(m)
         iota.api.findTransactions({ addresses: addresses}, function (error, result) {
             if (error) {
                 return callback(error);
@@ -267,57 +397,90 @@ $(document).ready(function () {
                     if (error) {
                         return callback(error);
                     } else {
-                        var transactions = trytes.map(function (transactionTrytes) {
-                            return iota.utils.transactionObject(transactionTrytes);
-                        });
-                        var bundles = sortToBundles(transactions)
-                        var messages = []
-                        Object.keys(bundles).forEach(function(bundleHash){
-                            var bundle = bundles[bundleHash]
-                            var message = getBundleMessage(bundle)
-                            if(message){
-                                message.timestamp = bundle[0].timestamp
-                                message.address = bundle[0].address
-                                messages.push(message)
-                            }
-                        })
-                        return callback(null, messages);
+                        return callback(null,  messagesFromBundles(trytes));
                     }
                 });
             }
         });
-        iota.api.getNodeInfo(function (error, results) {})
+        iota.api.getNodeInfo(function (error, results) {})*/
     }
 
-    var createMamMessage = function(toContact, fromAccount, message) {
-        var security = 1;
-        console.log('createMamMessage start')
+    var sendMamHandler = function(error, results) {
 
-        let mamState = Mam.init(iota)
-
-
-        const publish = async packet => {
-            // Create MAM Payload - STRING OF TRYTES
-            var message = Mam.create(mamState, packet)
-            // Save new mamState
-            mamState = message.state
-            // Attach the payload.
-            console.log('Root: ', message.root)
-            console.log('Address: ', message.address)
-            console.log('message.payload: ', message.payload)
-            await Mam.attach(message.payload, message.address)
+        console.log("error")
+        console.log(JSON.stringify(error))
+        console.log("results")
+        console.log(JSON.stringify(results))
 
             // Fetch Stream Async to Test
-            var resp = await Mam.fetch(message.root, 'public', null, console.log)
-            console.log(resp)
+        const fetch = async () => {
+            await Mam.fetch(results.root, 'private', null, function(mesg){
+                console.log("the message is "+ mesg)
+            })
         }
+        fetch()
 
-
-        publish("ZZZXXXX")
 
     }
 
+    var getContactRequests = function() {
+        var accounts = accountsStore.all()
+        var addresses = accounts.map(function(account){ return account.address})
+        iota.api.findTransactions({ addresses: addresses, tags: [MAM_ROOT_TAG]}, function (error, result) {
+            if (error) {
+                return callback(error);
+            } else if (result.length == 0) {
+                // handle empty results
+                console.log("no results in findTransactions callback for addresses "+ JSON.stringify(addresses));
+            } else {
+                iota.api.getTrytes(result, function (error, trytes) {
+                    if (error) {
+                        console.log(error);
+                    } else {
+                        var messages = messagesFromBundles(trytes);
+                        for( var i = 0; i < messages.length; i++) {
+                            var message = messages[i]
+                            var account = accounts.find((acc) => { return acc.address === message.address})
+                            var fromAddress = null
+                            var fromMamRoot = null
+                            var toMamRoot = null
+                            if(message.fromMamRoot){
+                                fromMamRoot = decrypt(message.fromMamRoot, account.privateKey).text
+                            }
+                            if(message.toMamRoot){
+                                toMamRoot = decrypt(message.toMamRoot, account.privateKey).text
+                            }
+                            if(message.fromAddress){
+                                fromAddress = decrypt(message.fromAddress, account.privateKey).text
+                            }
+                            if(fromMamRoot && iota.valid.isAddress(fromMamRoot))  {
+                                if(fromAddress && iota.valid.isAddress(fromAddress)) {
 
+                                    getPublicKey(fromAddress, function(error, publicKeys){
+                                        publicKeys.forEach(function(publicKey){
+                                            console.log(JSON.stringify(publicKey))
+                                            var exists = contactsStore.find({
+                                                address: fromAddress
+                                            })
+                                            if(exists.length === 0){
+                                                publicKey.newMessages = 0
+                                                //contactsStore.insert(publicKey);
+                                            }
+                                        })
+                                    })
+
+
+                                }
+                                console.log("fromAddress: "+fromAddress)
+                                console.log("fromMamRoot: "+fromMamRoot)
+                                console.log("toMamRoot: "+toMamRoot)
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
     /*
         Returns an array of tangle addresses for inbound messages to any of the accounts
     */
@@ -359,6 +522,31 @@ $(document).ready(function () {
         return addresses
      }
 
+    /**
+     *
+     * @param {*} trytes - an array of transaction trytes
+     *
+     * @returns messages - an array of objects representing the data portions of each bundle
+     */
+    var messagesFromBundles = function(trytes) {
+        var transactions = trytes.map(function (transactionTrytes) {
+            return iota.utils.transactionObject(transactionTrytes);
+        });
+        var bundles = sortToBundles(transactions)
+        var messages = []
+        Object.keys(bundles).forEach(function(key, idx){
+            var bundle = bundles[key]
+            var message = JSON.parse(iota.utils.extractJson(bundle))
+            if(message){
+                message.timestamp = bundle[0].timestamp
+                message.address = bundle[0].address
+                message.bundle = key
+                messages.push(message)
+            }
+        })
+        return messages
+    }
+
     var sortToBundles = function(transactions) {
         bundles = {}
         for( var i = 0 ; i < transactions.length ; i++) {
@@ -368,32 +556,8 @@ $(document).ready(function () {
                 bundles[bundleHash] = []
             }
             bundles[bundleHash][transaction.currentIndex] = transaction
-
         }
         return bundles
-    }
-
-    var getBundleMessage = function(bundle) {
-
-        if(!bundle[0]) {
-            // if no transaction at index 0, then this is a bad bundle. Likely corrutpted  by a Tangle snapshot
-            return '';
-        }
-        var messageTrytes = ''
-        bundle.forEach(function (transaction, idx) {
-            messageTrytes += transaction.signatureMessageFragment;
-        });
-        // kluge to make sure it's an even # of chars for fromTrytes
-        if (messageTrytes.length % 2 > 0) {
-            messageTrytes += '9'
-        }
-        var decodedStr = iota.utils.fromTrytes(messageTrytes);
-        var jsonStr = decodedStr.substr(0, decodedStr.lastIndexOf('}') + 1)
-        try {
-            return JSON.parse(jsonStr);
-        } catch(error) {
-            return {error: error.toString()}
-        }
     }
 
     var log = function(object){
@@ -500,6 +664,22 @@ $(document).ready(function () {
         }
         messagesStore.update(results.message)
         showMessageList()
+    }
+
+    var sendContactRequestResultsHandler = function(error, results) {
+        if (error) {
+            console.log("sendContactRequestResultsHandler error: "+JSON.stringify(error))
+            if(results && results.contact) {
+                results.contact.status = CONTACT_REQUEST_STATUS_ERROR
+                results.contact.errorMessage = error
+            }
+        } else {
+            if(results && results.contact) {
+                results.contact.status = CONTACT_REQUEST_STATUS_SENT
+            }
+        }
+        contactsStore.update(results.contact)
+        showContactsList()
     }
 
     var getInboundMessagesResultsHandler = function(error, messages) {
@@ -612,8 +792,8 @@ $(document).ready(function () {
                     publicKey.newMessages = 0
                     contactsStore.insert(publicKey);
                 }
-                showContactsList()
             })
+                showContactsList()
         }
     }
 
@@ -641,11 +821,18 @@ $(document).ready(function () {
     The first 27 trytes of a public key address.
     */
     var getPublicKeyLabel = function(publicKey) {
-        return createFingerprint(publicKey);
+        if(publicKey) {
+            return createFingerprint(publicKey).substr(0,27);
+        }
+        return "no public key "
     }
 
-    function getKeyUsername(publicKey) {
+    var getKeyUsername = function(publicKey) {
         return publicKey.name + '@' + getPublicKeyLabel(publicKey.publicKey)
+    }
+
+    var getTagFromUsername = function(username) {
+        return username.split('@')[1]
     }
 
     /*
@@ -663,10 +850,16 @@ $(document).ready(function () {
     }
 
     /*
-    Returns boolean about whether the given address matches the given publicKey
+    Returns boolean about whether the given address matches the given publicKey and tag
     */
-    var validatePublicKey = function(publicKey, address) {
-        return createFingerprint(publicKey) === address
+    var validatePublicKey = function(publicKey, address, tagOrAddress) {
+        let addressMatchesTag = false
+        if(tagOrAddress.length === 27 && address.substr(0,27) === tagOrAddress){
+            addressMatchesTag = true
+        } else if(address == tagOrAddress){
+            addressMatchesTag = true
+        }
+        return addressMatchesTag && createFingerprint(publicKey) === address
     }
 
 
@@ -725,6 +918,7 @@ $(document).ready(function () {
         $('#deletedContactsList').empty();
         if(contacts && contacts.length > 0) {
             contacts.forEach(function (contact) {
+                //contactsStore.remove(contact)
                 if(!contact.deleted && !contact.error) {
                     var tag = getPublicKeyLabel(contact.publicKey)
                     var userName = getKeyUsername(contact)
@@ -740,7 +934,7 @@ $(document).ready(function () {
                     $('#contactsList').append('<li id="'+ tag +'"><input type="radio" name="toAddress" id="toAddress' + tag + '" value="'+ userName +'"><label  id="contactLabel'+tag+'" class="'+labelClass+'"for="toAddress'+ tag + '">' + userName + ' ' + icon + '</label></li>')
                 } else {
                     var address = contact.address
-                    var userName = getKeyUsername(contact)
+                    var userName = '' //getKeyUsername(contact)
                     $('#deletedContactsList').append('<li id="'+ address +'">' + getKeyUsername(contact) + ' <input type="radio" name="address" id="address' + address + '" value="'+ address +'"><button type="button" class="unblock btn btn-default btn-xs"><span class="glyphicon glyphicon-user" aria-hidden="true"></span> Unblock</button></li>')
                 }
             });
@@ -876,7 +1070,7 @@ $(document).ready(function () {
                 } else if(results.latestMilestoneIndex !== results.latestSolidSubtangleMilestoneIndex) {
                     showAlert('warning', node_address + ' is not fully synced. You may not be able to send messages.')
                 } else {
-                    showAlert('success', 'Node configuration is complete.')
+                    toastr.success('Node configuration is complete.', null, {timeOut: 1000})
                 }
             })
         }
@@ -891,6 +1085,11 @@ $(document).ready(function () {
 
     var createDatastoreFilename = function(type, address) {
         return path.join(electron.remote.app.getPath('userData'), address + '.' + type + '.data');
+    }
+
+    var copyToClipboard = function (text) {
+        electron.clipboard.writeText(text)
+        toastr.info("Copied to clipboard", null, {timeOut: 500})
     }
 
     var getCcurlPath = function() {
@@ -909,7 +1108,8 @@ $(document).ready(function () {
     }
 
     var checkForNewMessages = function () {
-        getMessages(getInboundMessageAddresses(),getInboundMessagesResultsHandler)
+        //getMessages(getInboundMessageAddresses(),getInboundMessagesResultsHandler)
+        getContactRequests()
         setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
     }
 
@@ -934,16 +1134,14 @@ $(document).ready(function () {
     });
 
     $("#add_contact").on("click", function () {
-        var address = $("#contact_address").val();
-        var tag = address.split('@')[1];
-        $("#contact_address").val('');
-        // the http request hangs unless this method is called more than once, so workaround is to just call it twice. WTF!!
-        getPublicKey(tag, addContactResultHandler);
+        var username = $("#contact_address").val()
+        $("#contact_address").val('')
+        initializeContact(currentAccount, username)
     });
 
     $("#create_account").on("click", function () {
-        var name = $("#name").val();
-        $("#name").val('');
+        var name = $("#name").val()
+        $("#name").val('')
         createAccount(name)
     })
 
@@ -964,12 +1162,16 @@ $(document).ready(function () {
 
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
-        setCurrentContact(getContact(username.split('@')[1]))
+        copyToClipboard(username)
+        if(DEBUG){
+            console.log("account:"+JSON.stringify(getContact(getTagFromUsername(username))))
+        }
+         setCurrentContact(getContact(getTagFromUsername(username)))
     });
 
     $('#contactsList').on('click','a.delete',function(event) {
         var username = $(this).prev().val()
-        var contact = getContact(username.split('@')[1])
+        var contact = getContact(getTagFromUsername(username))
         var messages = messagesStore.find({
             '$or': [
                 {from: { '$in' :[contact.address]}},
@@ -997,12 +1199,16 @@ $(document).ready(function () {
 
     $('#accountsList').on('click','label',function() {
         var username = $(this).prev().val()
-        setCurrentAccount(getAccount(username.split('@')[1]))
+        copyToClipboard(username)
+        if(DEBUG){
+            console.log("account:"+JSON.stringify(getAccount(getTagFromUsername(username))))
+        }
+        setCurrentAccount(getAccount(getTagFromUsername(username)))
     });
 
     $('#accountsList').on('click','a.delete',function(event) {
         var username = $(this).prev().val()
-        var contact = getAccount(username.split('@')[1])
+        var contact = getAccount(getTagFromUsername(username))
         var messages = messagesStore.find({
             '$or': [
                 {from: { '$in' :[contact.address]}},
@@ -1022,7 +1228,7 @@ $(document).ready(function () {
 
     $('#accountsList').on('click','button.retry',function() {
         var username = $(this).prev().val()
-        currentAccount = getAccount(username.split('@')[1])
+        currentAccount = getAccount(getTagFromUsername(username))
         sendAccount(currentAccount)
         showMessageList();
     });

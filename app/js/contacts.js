@@ -31,23 +31,23 @@ var contactsStore = function(secret, dbFileName, callback = null) {
             self.contacts = self.db.addCollection("contacts");
         }
         if(callback) {
-            callback(self)
+            callback()
         }
     }
- 
+
     this.db = new loki(dbFileName, {
         adapter: cryptedFileAdapter,
         autoload: true,
 	    autoloadCallback : databaseInitialize,
-	    autosave: true, 
-	    autosaveInterval: 4000 
+	    autosave: true,
+	    autosaveInterval: 4000
     });
 }
 
 /*
     params = {
         publicKey: "1,3,0,6,16,30,...",  // ntru public key
-        name: "myHandle", 
+        name: "myHandle",
         fingerprint: "ABCD...", // 81 Trytes string generated from publicKey hash
         address: "ABCD...", // Tangle address where public key is stored
     }
@@ -76,7 +76,7 @@ contactsStore.prototype.remove = function(object) {
     return this.contacts.remove(object)
 }
 
-/* 
+/*
     Mark a contact as deleted, but keep fingerprint.
 */
 contactsStore.prototype.softRemove = function(object) {

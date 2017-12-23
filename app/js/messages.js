@@ -31,16 +31,16 @@ var messageStore = function(secret, dbFileName, callback = null) {
             self.messages = self.db.addCollection("messages");
         }
         if(callback) {
-            callback(self)
+            callback()
         }
     }
- 
+
     this.db = new loki(dbFileName, {
         adapter: cryptedFileAdapter,
         autoload: true,
 	    autoloadCallback : databaseInitialize,
-	    autosave: true, 
-	    autosaveInterval: 4000 
+	    autosave: true,
+	    autosaveInterval: 4000
     });
 }
 
@@ -66,7 +66,7 @@ messageStore.prototype.update = function(params) {
 
 messageStore.prototype.upsert = function(params) {
     if(this.messages.find(params).length === 0) {
-        return this.insert(params)  
+        return this.insert(params)
     }
     return null
 }
