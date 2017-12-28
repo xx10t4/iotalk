@@ -39,8 +39,7 @@ $(document).ready(function () {
 
     // Initialize with bogus config until the real config is loaded
     var iota = new IOTA({
-        'host': '',
-        'port': 1
+        'provider': ''
     });
     const DEBUG = true
 
@@ -58,7 +57,7 @@ $(document).ready(function () {
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 14;
     var tangleDepth = 4;
-    const MESSAGE_CHECK_FREQUENCY = 100000 // seconds
+    const MESSAGE_CHECK_FREQUENCY = 120 // seconds
 
     // status codes for account and contact public keys
     const PUBLICKEY_STATUS_OK = 'ok'
@@ -69,10 +68,14 @@ $(document).ready(function () {
     const PUBLICKEY_STATUS_SENDING = 'sending'
 
     // status codes for MAM key exchange
-    const CONTACT_REQUEST_STATUS_PENDING = 'pending'
-    const CONTACT_REQUEST_STATUS_ERROR = 'error'
-    const CONTACT_REQUEST_STATUS_SENT = 'sent'
-    const CONTACT_REQUEST_STATUS_ACCEPTED = 'accepted'
+    const MAM_ROOT_STATUS_PENDING = 'pending'
+    const MAM_ROOT_STATUS_ERROR = 'error'
+    const MAM_ROOT_STATUS_SENT_INIT = 'sent_init'
+    const MAM_ROOT_GET_PUBLIC_KEY = 'get_public_key'
+    const MAM_ROOT_STATUS_RECEIVED_INIT = 'received_init'
+    const MAM_ROOT_STATUS_SENT_CONFIRM = 'sent_confirm'
+    const MAM_ROOT_STATUS_ACCEPTED = 'accepted'
+    const MAM_ROOT_STATUS_BLOCKED = 'blocked'
 
     // status codes for outgoing messages
     const MESSAGE_STATUS_SENT = 'sent'
@@ -171,7 +174,7 @@ $(document).ready(function () {
             'tag': account.address.substr(0,27)
         }]
 
-        account.status = PUBLICKEY_STATUS_SENDING
+        account.keyStatus = PUBLICKEY_STATUS_SENDING
         accountsStore.update(account)
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
         showAccountsList();
@@ -249,12 +252,14 @@ $(document).ready(function () {
 
     var sendContactRequest = function(fromAccount, toContact) {
 
+        if(!toContact.mamState){
         let mamState = Mam.changeMode(Mam.init(iota), 'private')
         let mamMessage = Mam.create(mamState, 'Initial Message')
-        mamState = mamMessage.state
+            toContact.mamState = mamMessage.state
+        }
 
         var publicKey = toContact.publicKey
-        var fromMamRoot = mamState.channel.next_root
+        var fromMamRoot = toContact.mamState.channel.next_root
         var fromAddress = fromAccount.address
         var tangleMessage = {
             fromMamRoot: encrypt(fromMamRoot, publicKey),
@@ -268,12 +273,40 @@ $(document).ready(function () {
             tag: MAM_ROOT_TAG
         }]
 
-        toContact.status = CONTACT_REQUEST_STATUS_PENDING
-        toContact.mamState = mamState
-        toContact.account = fromAccount.address
+        toContact.mamRootStatus = MAM_ROOT_STATUS_PENDING
+        toContact.account = fromAddress
         contactsStore.update(toContact)
 
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendContactRequestResultsHandler, {contact: toContact})
+        showContactsList();
+    }
+
+    var sendContactRequestConfirmation = function(toContact, resultsHandlerCallback) {
+        if(!toContact.mamState){
+            let mamState = Mam.changeMode(Mam.init(iota), 'private')
+            let mamMessage = Mam.create(mamState, 'Initial Message')
+            toContact.mamState = mamMessage.state
+        }
+        var publicKey = toContact.publicKey
+        var fromMamRoot = toContact.mamState.channel.next_root
+        var toMamRoot = toContact.fromMamRoot // The MAM root that the contact previously sent to this user
+        var tangleMessage = {
+            fromMamRoot: encrypt(fromMamRoot, publicKey),
+            toMamRoot: encrypt(toMamRoot, publicKey),
+            fromAddress: encrypt(toContact.account, publicKey)
+        }
+
+        var transfer = [{
+            address: toContact.address,
+            value: 0,
+            message: iota.utils.toTrytes(JSON.stringify(tangleMessage)),
+            tag: MAM_ROOT_TAG
+        }]
+
+        toContact.mamRootStatus = MAM_ROOT_STATUS_SENT_CONFIRM
+        contactsStore.update(toContact)
+
+        sendTransfers(transfer, tangleDepth, minWeightMagnitude, resultsHandlerCallback, {contact: toContact})
         showContactsList();
     }
 
@@ -412,7 +445,7 @@ publish('MESSAGETHREE')
         console.log("results")
         console.log(JSON.stringify(results))
 
-            // Fetch Stream Async to Test
+        // Fetch Stream Async to Test
         const fetch = async () => {
             await Mam.fetch(results.root, 'private', null, function(mesg){
                 console.log("the message is "+ mesg)
@@ -428,11 +461,14 @@ publish('MESSAGETHREE')
         var addresses = accounts.map(function(account){ return account.address})
         iota.api.findTransactions({ addresses: addresses, tags: [MAM_ROOT_TAG]}, function (error, result) {
             if (error) {
-                return callback(error);
+                console.log("Error in getContactRequests: "+JSON.stringify(error))
             } else if (result.length == 0) {
                 // handle empty results
-                console.log("no results in findTransactions callback for addresses "+ JSON.stringify(addresses));
+                console.log("no results in getContactRequests callback for addresses "+ JSON.stringify(addresses));
             } else {
+                if(DEBUG) {
+                    console.log("getContactRequests findTransactions result "+ JSON.stringify(result));
+                }
                 iota.api.getTrytes(result, function (error, trytes) {
                     if (error) {
                         console.log(error);
@@ -441,6 +477,10 @@ publish('MESSAGETHREE')
                         for( var i = 0; i < messages.length; i++) {
                             var message = messages[i]
                             var account = accounts.find((acc) => { return acc.address === message.address})
+                            if(!account) {
+                                console.log("No account exists for contact request to address "+ message.address)
+                                continue
+                            }
                             var fromAddress = null
                             var fromMamRoot = null
                             var toMamRoot = null
@@ -453,33 +493,67 @@ publish('MESSAGETHREE')
                             if(message.fromAddress){
                                 fromAddress = decrypt(message.fromAddress, account.privateKey).text
                             }
-                            if(fromMamRoot && iota.valid.isAddress(fromMamRoot))  {
-                                if(fromAddress && iota.valid.isAddress(fromAddress)) {
+                            if(isValidAddress(fromAddress) && isValidAddress(fromMamRoot))  {
 
+                                var exists = contactsStore.find({
+                                    account: account.address,
+                                    address: fromAddress
+                                })
+                                var contact = exists[0]
+                                if(contact && (contact.mamRootStatus === MAM_ROOT_STATUS_ACCEPTED || contact.mamRootStatus === MAM_ROOT_STATUS_BLOCKED)) {
+                                    continue
+                                }
+                                if(!contact){
+                                    // This is the first time seeing a message from this contact
+                                    contact = contactsStore.insert({
+                                        address: fromAddress,
+                                        account: account.address,
+                                        fromMamRoot: fromMamRoot,
+                                        mamRootStatus: MAM_ROOT_GET_PUBLIC_KEY
+                                    })
+                                }
+                                if(contact.mamRootStatus === MAM_ROOT_GET_PUBLIC_KEY) {
                                     getPublicKey(fromAddress, function(error, publicKeys){
                                         publicKeys.forEach(function(publicKey){
-                                            console.log(JSON.stringify(publicKey))
-                                            var exists = contactsStore.find({
-                                                address: fromAddress
-                                            })
-                                            if(exists.length === 0){
-                                                publicKey.newMessages = 0
-                                                //contactsStore.insert(publicKey);
-                                            }
+                                            contact.publicKey = publicKey.publicKey
+                                            contact.name = publicKey.name
+                                            contact.bundle = publicKey.bundle
+                                            contact.mamRootStatus = MAM_ROOT_STATUS_RECEIVED_INIT
+                                            contactsStore.update(contact)
+                                            showContactsList();
                                         })
                                     })
-
-
                                 }
-                                console.log("fromAddress: "+fromAddress)
-                                console.log("fromMamRoot: "+fromMamRoot)
-                                console.log("toMamRoot: "+toMamRoot)
+                                if(isValidConfirmationMessage(contact, toMamRoot)) {
+                                    contact.fromMamRoot = fromMamRoot
+                                    // This is a message from the contact confirming that they have the mamRoot from this contact
+                                    if(contact.mamRootStatus === MAM_ROOT_STATUS_SENT_INIT) {
+                                        sendContactRequestConfirmation(contact,function(error,results){
+                                            // TODO handle errors. Resend confirmation?
+                                            contact.mamRootStatus = MAM_ROOT_STATUS_ACCEPTED
+                                            contactsStore.update(contact)
+                                        })
+                                    }
+                                    contact.mamRootStatus = MAM_ROOT_STATUS_ACCEPTED
+                                    contactsStore.update(contact)
+                                }
+                            } else {
+                                console.log("no valid fromAddress in contactRequest to address "+message.address)
                             }
                         }
                     }
+                    showContactsList();
                 });
             }
         });
+    }
+
+    var isValidAddress = function(address) {
+        return address && iota.valid.isAddress(address)
+    }
+
+    var isValidConfirmationMessage = function(contact, toMamRoot) {
+        return contact.mamState && isValidAddress(toMamRoot) && (toMamRoot === contact.mamState.channel.next_root)
     }
     /*
         Returns an array of tangle addresses for inbound messages to any of the accounts
@@ -611,22 +685,22 @@ publish('MESSAGETHREE')
         set status and statusMessage on contact or account record
     */
     var setStatus = function(error, publicKeys, user) {
-        user.status = PUBLICKEY_STATUS_OK
-        user.statusMessage = ''
+        user.keyStatus = PUBLICKEY_STATUS_OK
+        user.keyStatusMessage = ''
         if(error) {
             if(error.status !== undefined){
-                user.status = error.status
+                user.keyStatus = error.status
             } else {
-                user.status = PUBLICKEY_STATUS_ERROR
-                user.statusMessage = error.toString()
+                user.keyStatus = PUBLICKEY_STATUS_ERROR
+                user.keyStatusMessage = error.toString()
             }
         } else {
             if(publicKeys.length < 1) {
-                user.status = PUBLICKEY_STATUS_NOT_FOUND
+                user.keyStatus = PUBLICKEY_STATUS_NOT_FOUND
             } else if(publicKeys.length > 1) {
-                user.status = PUBLICKEY_STATUS_MULTIPLE_FOUND
+                user.keyStatus = PUBLICKEY_STATUS_MULTIPLE_FOUND
             } else if(publicKeys[0].address != user.address) {
-                user.status = PUBLICKEY_STATUS_BAD_ADDRESS
+                user.keyStatus = PUBLICKEY_STATUS_BAD_ADDRESS
             }
         }
     }
@@ -637,13 +711,13 @@ publish('MESSAGETHREE')
     var addAccountResultsHandler = function(error, results) {
         if (error) {
             if(results && results.account) {
-                results.account.status = PUBLICKEY_STATUS_ERROR
+                results.account.keyStatus = PUBLICKEY_STATUS_ERROR
                 console.log("addAccountResultsHandler error: "+JSON.stringify(error))
-                results.account.errorMessage = error.toString()
+                results.account.keyStatus = error.toString()
             }
         } else {
             if(results && results.account) {
-                results.account.status = PUBLICKEY_STATUS_OK
+                results.account.keyStatus = PUBLICKEY_STATUS_OK
             }
         }
         accountsStore.update(results.account)
@@ -670,12 +744,30 @@ publish('MESSAGETHREE')
         if (error) {
             console.log("sendContactRequestResultsHandler error: "+JSON.stringify(error))
             if(results && results.contact) {
-                results.contact.status = CONTACT_REQUEST_STATUS_ERROR
-                results.contact.errorMessage = error
+                results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
+                results.contact.mamRootStatusMessage = "Error in sendContactRequestResultsHandler: "+error
             }
         } else {
             if(results && results.contact) {
-                results.contact.status = CONTACT_REQUEST_STATUS_SENT
+                results.contact.mamRootStatus = MAM_ROOT_STATUS_SENT_INIT
+                results.contact.mamRootStatusMessage = ''
+            }
+        }
+        contactsStore.update(results.contact)
+        showContactsList()
+    }
+
+    var sendContactRequestConfirmationResultsHandler = function(error, results) {
+        if (error) {
+            console.log("sendContactRequestConfirmationResultsHandler error: "+JSON.stringify(error))
+            if(results && results.contact) {
+                results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
+                results.contact.mamRootStatusMessage = "Error in sendContactRequestConfirmationResultsHandler: "+error
+            }
+        } else {
+            if(results && results.contact) {
+                results.contact.mamRootStatus = MAM_ROOT_STATUS_SENT_CONFIRM
+                results.contact.mamRootStatusMessage = ''
             }
         }
         contactsStore.update(results.contact)
@@ -862,6 +954,30 @@ publish('MESSAGETHREE')
         return addressMatchesTag && createFingerprint(publicKey) === address
     }
 
+    var contactPendingIcon = function(contact) {
+        var tag = getPublicKeyLabel(contact.publicKey)
+        var userName = getKeyUsername(contact)
+        switch(contact.mamRootStatus){
+
+            case MAM_ROOT_STATUS_RECEIVED_INIT:
+            case MAM_ROOT_STATUS_ACCEPTED:
+                return '<input type="radio" name="acceptContact" id="acceptContact' + tag + '" value="'+ contact.address +'"><a class="accept"><span class="glyphicon glyphicon-ok-sign" aria-hidden="true"></span></a><input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+            case MAM_ROOT_STATUS_ERROR:
+                if(contact.mamRootStatusMessage =~ /Error in sendContactRequestConfirmationResultsHandler/) {
+                    return '<input type="radio" name="acceptContact" id="acceptContact' + tag + '" value="'+ contact.address +'"><a class="accept"><span class="glyphicon glyphicon-ok-sign" aria-hidden="true"></span></a><input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+                } else {
+                    return null
+                }
+            case MAM_ROOT_STATUS_SENT_INIT:
+                return ' contact request sent <input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+            case MAM_ROOT_STATUS_PENDING:
+                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">sending request to <b>'+contact.name + '</b>...</span>'
+            case MAM_ROOT_STATUS_SENT_CONFIRM:
+                return '<span class="glyphicon glyphicon-cog glyphicon-hourglass"></span> <span class="status">accepted request from <b>'+contact.name + '</b>...</span><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+            default:
+                return null
+        }
+    }
 
 // UI functions
 
@@ -898,14 +1014,14 @@ publish('MESSAGETHREE')
                 var deleteButton = '<input type="radio" name="account" id="deleteAccount' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                 var item
                 var labelClass = account.address == currentAccount.address ? "current" : ""
-                if(account.status === PUBLICKEY_STATUS_OK) {
+                if(account.keyStatus === PUBLICKEY_STATUS_OK) {
                     item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label id="accountLabel'+tag+'" class="'+labelClass+'" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
-                } else if(account.status === PUBLICKEY_STATUS_SENDING) {
+                } else if(account.keyStatus === PUBLICKEY_STATUS_SENDING) {
                     item = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
-                } else if(account.status === PUBLICKEY_STATUS_NOT_FOUND) {
+                } else if(account.keyStatus === PUBLICKEY_STATUS_NOT_FOUND) {
                     item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> not found. <input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 } else {
-                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> has a problem: '+account.status+'</span><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
+                    item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> has a problem: '+account.keyStatus+'</span><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 }
                 $('#accountsList').append('<li id="'+ tag +'">' + item + '</li>')
             });
@@ -924,9 +1040,12 @@ publish('MESSAGETHREE')
                     var userName = getKeyUsername(contact)
                     var labelClass = ''
                     var icon = ''
-                    if(currentContact && contact.address == currentContact.address){
+                    var pendingIcon = contactPendingIcon(contact)
+                    if(pendingIcon){
+                        icon = pendingIcon
+                    } else if(currentContact && contact.address == currentContact.address){
                         labelClass = "current"
-                        icon = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ userName +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
+                        icon = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                     } else if(contact.newMessages > 0) {
                         icon = '<span class="new-messages">'+contact.newMessages+'</span>'
                     }
@@ -1054,15 +1173,12 @@ publish('MESSAGETHREE')
 
     var initConfiguration = function() {
         var node_address = configuration.get('node_address').value
-        var node_port = configuration.get('node_port').value
         $('#config_node_address').val(node_address)
-        $('#config_node_port').val(node_port)
-        if(!validNodeAddress(node_address, node_port)) {
+        if(!validNodeAddress(node_address)) {
             showAlert('warning', 'A valid node address is required. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.</a>')
         } else {
             iota = new IOTA({
-                'host': node_address,
-                'port': node_port
+                'provider': node_address
             });
             iota.api.getNodeInfo(function (error, results) {
                 if(error || !results) {
@@ -1076,11 +1192,11 @@ publish('MESSAGETHREE')
         }
     }
 
-    var validNodeAddress = function(address, port) {
-        if(!(address && port)) {
+    var validNodeAddress = function(address) {
+        if(!address) {
             return false
         }
-        return address.match(/^https?:\/\/.+/) && port.match(/\d+/)
+        return address.match(/^https?:\/\/.+\:.+/)
     }
 
     var createDatastoreFilename = function(type, address) {
@@ -1147,8 +1263,7 @@ publish('MESSAGETHREE')
 
     $("#save_config").on("click", function () {
         [
-            'node_address',
-            'node_port'
+            'node_address'
         ].forEach(function(key, idx, keys){
             var config = configuration.get(key)
             config.value = $("#config_"+key).val()
@@ -1164,21 +1279,32 @@ publish('MESSAGETHREE')
         var username = $(this).prev().val()
         copyToClipboard(username)
         if(DEBUG){
-            console.log("account:"+JSON.stringify(getContact(getTagFromUsername(username))))
+            console.log("contact:"+JSON.stringify(getContact(getTagFromUsername(username))))
         }
          setCurrentContact(getContact(getTagFromUsername(username)))
     });
 
+    $('#contactsList').on('click','a.accept',function(event) {
+        var address = $(this).prev().val()
+        var contact = getContact(address)
+        var confirmMessage = "Are you sure you want to add contact "+ getKeyUsername(contact) + "?"
+        if(confirm(confirmMessage)){
+            sendContactRequestConfirmation(contact, sendContactRequestConfirmationResultsHandler)
+        }
+        showContactsList()
+        //showMessageList()
+    });
+
     $('#contactsList').on('click','a.delete',function(event) {
-        var username = $(this).prev().val()
-        var contact = getContact(getTagFromUsername(username))
+        var address = $(this).prev().val()
+        var contact = getContact(address)
         var messages = messagesStore.find({
             '$or': [
                 {from: { '$in' :[contact.address]}},
                 {to: { '$in' :[contact.address]}}
             ]
         })
-        var confirmMessage = "Are you sure you want to delete contact "+ username + "?"
+        var confirmMessage = "Are you sure you want to delete contact "+ getKeyUsername(contact) + "?"
         if(messages.length > 0) {
             confirmMessage += "\n\nThis will delete "+messages.length+" messages between you and this contact."
         }

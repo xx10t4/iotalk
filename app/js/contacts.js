@@ -77,11 +77,11 @@ contactsStore.prototype.remove = function(object) {
 }
 
 /*
-    Mark a contact as deleted, but keep fingerprint.
+    Mark a contact as deleted, but keep address.
 */
 contactsStore.prototype.softRemove = function(object) {
     object.publicKey = null
-    object.addrss = null
+    object.mamState = null
     object.deleted = new Date()
     return this.update(object)
 }
