@@ -37,11 +37,12 @@ $(document).ready(function () {
     const ContactsStore = require("./contacts.js")
     const ConfigurationStore = require("./configuration.js")
 
+    const LOG_LEVEL = 'error' // valid values: 'debug', 'warning', 'error'
+
     // Initialize with bogus config until the real config is loaded
     var iota = new IOTA({
         'provider': ''
     });
-    const DEBUG = true
 
     var seed;
     var messagesStore;
@@ -57,9 +58,9 @@ $(document).ready(function () {
     var value = 0; // TODO need proper forwarding of remainder values before we can allow value to be sent
     var minWeightMagnitude = 14;
     var tangleDepth = 4;
-    const MESSAGE_CHECK_FREQUENCY = 120 // seconds
+    const MESSAGE_CHECK_FREQUENCY = 30 // seconds
 
-    // status codes for account and contact public keys
+    // status codes for account and contact public keys (user.keyStatus)
     const PUBLICKEY_STATUS_OK = 'ok'
     const PUBLICKEY_STATUS_NOT_FOUND = 'not_found'
     const PUBLICKEY_STATUS_MULTIPLE_FOUND = 'multiple_found'
@@ -67,17 +68,18 @@ $(document).ready(function () {
     const PUBLICKEY_STATUS_BAD_ADDRESS = 'bad_address'
     const PUBLICKEY_STATUS_SENDING = 'sending'
 
-    // status codes for MAM key exchange
+    // status codes for MAM root exchange (contact.mamRootStatus)
     const MAM_ROOT_STATUS_PENDING = 'pending'
     const MAM_ROOT_STATUS_ERROR = 'error'
     const MAM_ROOT_STATUS_SENT_INIT = 'sent_init'
     const MAM_ROOT_GET_PUBLIC_KEY = 'get_public_key'
     const MAM_ROOT_STATUS_RECEIVED_INIT = 'received_init'
+    const MAM_ROOT_STATUS_SENDING_CONFIRM = 'sending_confirm'
     const MAM_ROOT_STATUS_SENT_CONFIRM = 'sent_confirm'
     const MAM_ROOT_STATUS_ACCEPTED = 'accepted'
     const MAM_ROOT_STATUS_BLOCKED = 'blocked'
 
-    // status codes for outgoing messages
+    // status codes for outgoing messages (message.status)
     const MESSAGE_STATUS_SENT = 'sent'
     const MESSAGE_STATUS_NOT_FOUND = 'not_found'
     const MESSAGE_STATUS_ERROR = 'error'
@@ -134,10 +136,10 @@ $(document).ready(function () {
     function createAccount(name) {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
             if (error) {
-                console.log(error);
+                log('error', "createAccount error: "+error);
             } else {
                 if (addresses.length != 1) {
-                    console.log("no addresses found!");
+                    log('error', "createAccount no addresses found!");
                     return;
                 }
                 var address = addresses[0];
@@ -185,7 +187,7 @@ $(document).ready(function () {
         tag = getTagFromUsername(username)
         getPublicKey(tag, function(error, publicKeys){
             if(error) {
-                console.log("error: "+error)
+                log('error', "initializeContact error: "+error)
             } else {
                 let contact = null;
                 publicKeys.forEach(function(publicKey){
@@ -199,7 +201,6 @@ $(document).ready(function () {
                         contact = publicKey
                         contactsStore.insert(publicKey);
                     } else {
-                        console.log(JSON.stringify(exists))
                         contact = exists[0]
                     }
                 })
@@ -303,7 +304,7 @@ $(document).ready(function () {
             tag: MAM_ROOT_TAG
         }]
 
-        toContact.mamRootStatus = MAM_ROOT_STATUS_SENT_CONFIRM
+        toContact.mamRootStatus = MAM_ROOT_STATUS_SENDING_CONFIRM
         contactsStore.update(toContact)
 
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, resultsHandlerCallback, {contact: toContact})
@@ -313,38 +314,59 @@ $(document).ready(function () {
     /*
         creates a new message and sends the public key to the tangle
     */
-    var createMessage = function(messageText, fromAccount, toContact) {
+    var createMessage = function(messageText, toContact) {
 
-        var messages = messagesStore.find({
-            from: { '$in' :[fromAccount.address]},
-            to: { '$in' :[toContact.address]}
-        })
-        let isFirstMessage = messages.length == 0
-
-        let mamState
-        if(isFirstMessage){
-            mamState = toContact.mamState
-        } else {
-            mamState = messages[messages.length - 1].mamState
-        }
-        var mamMessage = Mam.create(mamState, messageText)
-
-        var localMessage = {
+        let mamState  = getOutboundMamState(toContact)
+        debug('createMessage '+messageText+ ' mamteState', mamState)
+        let mamMessage = Mam.create(mamState, iota.utils.toTrytes(messageText))
+        let localMessage = {
             text: messageText,
             to: toContact.address,
-            from: fromAccount.address,
             mamState: mamMessage.state,
             mamAddress: mamMessage.address,
-            mamRoot: mamMessage.root
+            mamRoot: mamMessage.root,
+            status: MESSAGE_STATUS_SENDING
        }
-       messagesStore.insert(localMessage)
-       sendMamMessage(mamMessage, localMessage)
+       localMessage = messagesStore.insert(localMessage)
+       sendMessage(mamMessage, localMessage)
+    }
+
+    var getOutboundMamState = function(toContact) {
+        var messages = messagesStore.find({
+            to: toContact.address
+        })
+        let mamState = null
+        if(messages.length > 0 && messages[messages.length - 1].mamState) {
+            let message = messages[messages.length - 1]
+            debug('getOutboundMamState from message', message)
+            mamState = message.mamState
+        } else {
+            debug('getOutboundMamState from contact', toContact)
+            mamState = toContact.mamState
+        }
+        return JSON.parse(JSON.stringify(mamState))
+    }
+
+    var getInoundMamRoot = function(fromContact) {
+        var messages = messagesStore.find({
+            from: fromContact.address
+        })
+        let fromMamRoot = null
+        if(messages.length > 0 && messages[messages.length - 1].nextRoot) {
+            let message = messages[messages.length - 1]
+            debug('getInoundMamRoot from message', message)
+            fromMamRoot = message.nextRoot
+        } else {
+            debug('getInoundMamRoot from contact', fromContact)
+            fromMamRoot = fromContact.fromMamRoot
+        }
+        return fromMamRoot
     }
 
     /*
         creates a tangle transaction bundle that publishes a message
     */
-    var sendMamMessage = function(mamMessage, localMessage) {
+    var sendMessage = function(mamMessage, localMessage) {
 
         var transfer = [{
             'address': mamMessage.address,
@@ -352,7 +374,7 @@ $(document).ready(function () {
             'message': mamMessage.payload
         }]
 
-        localMessage.status = PUBLICKEY_STATUS_SENDING
+        localMessage.status = MESSAGE_STATUS_SENDING
         localMessage.timestamp = dateToTimestamp()
         messagesStore.update(localMessage)
 
@@ -360,100 +382,44 @@ $(document).ready(function () {
         showMessageList();
     }
 
-    var getMessages = function(addresses, callback) {
-
-        var mamState = Mam.init(iota)
-
-
-// Init State
-let root = ''
-
-// Initialise MAM State
-var mamState = Mam.init(iota)
-// Set channel mode
-mamState = Mam.changeMode(mamState, 'private')
-console.log('initial State: ', JSON.stringify(mamState))
-
-// Publish to tangle
-const publish = async packet => {
-    // Create MAM Payload - STRING OF TRYTES
-    console.log('---------- ')
-    console.log('MESSAGE: ', packet)
-
-    var message = Mam.create(mamState, packet)
-    // Save new mamState
-    mamState = message.state
-    console.log('Root: ', message.root)
-    console.log('Address: ', message.address)
-    console.log('State: ', JSON.stringify(message.state))
-    // Attach the payload.
-    var transfer = [{
-        address: message.address,
-        value: 0,
-        message: message.payload
-    }]
-
-   // sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMamHandler, {root: message.root})
-}
-
-publish('MESSAGEONE')
-
-publish('MESSAGETWO')
-publish('MESSAGETHREE')
-
-
-
-/*
-
-        Mam.changeMode(mamState, 'private')
-        var mamMessage = Mam.create(mamState, "this is a message")
-
-        var payload = mamMessage.payload
-        var address = mamMessage.address
-        //var root = mamMessage.address
-        var state = mamMessage.state
-        console.log("root "+root)
-        console.log("address"+address)
-        console.log("state "+JSON.stringify(state))
-        console.log("payload" + payload)
-
-       // var m = Mam.decode(payload, null, root )
-       // log(m)
-        iota.api.findTransactions({ addresses: addresses}, function (error, result) {
-            if (error) {
-                return callback(error);
-            } else if (result.length == 0) {
-                // handle empty results
-                return callback("no results in findTransactions callback for addresses "+ JSON.stringify(addresses));
-            } else {
-                iota.api.getTrytes(result, function (error, trytes) {
-                    if (error) {
-                        return callback(error);
-                    } else {
-                        return callback(null,  messagesFromBundles(trytes));
-                    }
-                });
-            }
-        });
-        iota.api.getNodeInfo(function (error, results) {})*/
+    var resendMessage = function(message) {
+        if(message){
+            var text = message.text
+            var contact = getContact(message.to)
+            messagesStore.remove(message)
+            createMessage(text, contact)
+        }
     }
 
-    var sendMamHandler = function(error, results) {
+    var getMessages = function() {
 
-        console.log("error")
-        console.log(JSON.stringify(error))
-        console.log("results")
-        console.log(JSON.stringify(results))
-
-        // Fetch Stream Async to Test
-        const fetch = async () => {
-            await Mam.fetch(results.root, 'private', null, function(mesg){
-                console.log("the message is "+ mesg)
-            })
-        }
-        fetch()
-
-
+        Mam.init(iota)
+        contactsStore.find({}).forEach(function(contact){
+            if(contact.mamRootStatus !== MAM_ROOT_STATUS_BLOCKED) {
+                var mamRoot = getInoundMamRoot(contact)
+                if(mamRoot) {
+                    const fetch = async () => {
+                        var result = await Mam.fetch(mamRoot, 'private')
+                        if(result) {
+                            var nextRoot = result.nextRoot
+                            result.messages.map(function(message){
+                                return iota.utils.fromTrytes(message)
+                            }).forEach(function(message){
+                                let localMessage = {
+                                    text: message,
+                                    from: contact.address,
+                                    nextRoot: nextRoot,
+                                    timestamp: dateToTimestamp()
+                               }
+                               messagesStore.insert(localMessage)
+                            })
+                            showMessageList()
+                        }
+                    }
+                    fetch()
+                }
+            }
+        })
     }
 
     var getContactRequests = function() {
@@ -461,24 +427,22 @@ publish('MESSAGETHREE')
         var addresses = accounts.map(function(account){ return account.address})
         iota.api.findTransactions({ addresses: addresses, tags: [MAM_ROOT_TAG]}, function (error, result) {
             if (error) {
-                console.log("Error in getContactRequests: "+JSON.stringify(error))
+                log('error',"Error in getContactRequests",error)
             } else if (result.length == 0) {
                 // handle empty results
-                console.log("no results in getContactRequests callback for addresses "+ JSON.stringify(addresses));
+                log('warning',"no results in getContactRequests callback for addresses",addresses)
             } else {
-                if(DEBUG) {
-                    console.log("getContactRequests findTransactions result "+ JSON.stringify(result));
-                }
+               debug("getContactRequests findTransactions result", result);
                 iota.api.getTrytes(result, function (error, trytes) {
                     if (error) {
-                        console.log(error);
+                        log('error', error);
                     } else {
                         var messages = messagesFromBundles(trytes);
                         for( var i = 0; i < messages.length; i++) {
                             var message = messages[i]
                             var account = accounts.find((acc) => { return acc.address === message.address})
                             if(!account) {
-                                console.log("No account exists for contact request to address "+ message.address)
+                                log('error', "No account exists for contact request to address "+ message.address)
                                 continue
                             }
                             var fromAddress = null
@@ -538,7 +502,7 @@ publish('MESSAGETHREE')
                                     contactsStore.update(contact)
                                 }
                             } else {
-                                console.log("no valid fromAddress in contactRequest to address "+message.address)
+                                log('error', "no valid fromAddress in contactRequest to address "+message.address)
                             }
                         }
                     }
@@ -634,10 +598,6 @@ publish('MESSAGETHREE')
         return bundles
     }
 
-    var log = function(object){
-        console.log(object+ ": "+JSON.stringify(object));
-    }
-
     var refreshAccountKeys = function() {
         accountsStore.all().forEach(function (account, idx) {
             getPublicKey(account.address, function(error, publicKeys){
@@ -712,7 +672,7 @@ publish('MESSAGETHREE')
         if (error) {
             if(results && results.account) {
                 results.account.keyStatus = PUBLICKEY_STATUS_ERROR
-                console.log("addAccountResultsHandler error: "+JSON.stringify(error))
+                log('error', "addAccountResultsHandler error: "+JSON.stringify(error))
                 results.account.keyStatus = error.toString()
             }
         } else {
@@ -726,7 +686,7 @@ publish('MESSAGETHREE')
 
     var sendMessageResultsHandler = function(error, results) {
         if (error) {
-            console.log("sendMessageResultsHandler error: "+JSON.stringify(error))
+            log('error', "sendMessageResultsHandler error", error)
             if(results && results.message) {
                 results.message.status = 'error'
                 results.message.errorMessage = error
@@ -742,10 +702,10 @@ publish('MESSAGETHREE')
 
     var sendContactRequestResultsHandler = function(error, results) {
         if (error) {
-            console.log("sendContactRequestResultsHandler error: "+JSON.stringify(error))
+            log('error', "sendContactRequestResultsHandler error: "+JSON.stringify(error))
             if(results && results.contact) {
                 results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
-                results.contact.mamRootStatusMessage = "Error in sendContactRequestResultsHandler: "+error
+                results.contact.mamRootStatusMessage = "Error in sendContactRequestResultsHandler"+error
             }
         } else {
             if(results && results.contact) {
@@ -758,8 +718,9 @@ publish('MESSAGETHREE')
     }
 
     var sendContactRequestConfirmationResultsHandler = function(error, results) {
+       debug("sendContactRequestConfirmationResultsHandler results",results)
         if (error) {
-            console.log("sendContactRequestConfirmationResultsHandler error: "+JSON.stringify(error))
+            log('error', "sendContactRequestConfirmationResultsHandler error: ",JSON.stringify(error))
             if(results && results.contact) {
                 results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
                 results.contact.mamRootStatusMessage = "Error in sendContactRequestConfirmationResultsHandler: "+error
@@ -774,107 +735,9 @@ publish('MESSAGETHREE')
         showContactsList()
     }
 
-    var getInboundMessagesResultsHandler = function(error, messages) {
-        if(error) {
-            console.log("in handler error:  " +error)
-        } else {
-            var newContacts = {}
-            for( var i = 0; i < messages.length; i++) {
-                var message = messages[i]
-                if(message.to){
-                    var account = getAccount(message.to)
-                    if(account) {
-                        var from = decrypt(message.from, account.privateKey).text
-                        if(from !== undefined) {
-                            var existingContact = getContact(from)
-                            if(existingContact) {
-                                if(existingContact.deleted) {
-                                    continue
-                                } else {
-                                    if (saveNewMessage(message, account)){
-                                        existingContact.newMessages += 1
-                                        contactsStore.update(existingContact)
-                                    }
-                                }
-                            } else {
-                                newContacts[from] = newContacts[from] ? newContacts[from] : []
-                                newContacts[from].push(message)
-                            }
-                        }
-                    }
-                }
-            }
-            showContactsList()
-            for (var from in newContacts) {
-                var tag = from.substr(0,27)
-                getPublicKey(tag, function(error, publicKeys){
-                    addContactResultHandler(error, publicKeys)
-                    if(!error && publicKeys && publicKeys[0].address === from){
-                        var messages = newContacts[from]
-                        var contact = getContact(from)
-                        for(var i = 0; i < messages.length; i++) {
-                            message = messages[i]
-                            var account = getAccount(message.to)
-                            if (saveNewMessage(message, account)){
-                                contact.newMessages += 1
-                                contactsStore.update(contact)
-                            }
-                        }
-                        showContactsList()
-                    }
-                })
-            }
-        }
-    }
-
-    var saveNewMessage = function(message, account) {
-        var from = decrypt(message.from, account.privateKey).text
-        var text = decrypt(message.body, account.privateKey).text
-        var replyAddress = decrypt(message.replyAddress, account.privateKey).text
-        var newMessage = {
-            to: message.to,
-            timestamp: message.timestamp,
-            address: message.address,
-            from: from,
-            text: text,
-            replyAddress: replyAddress
-        }
-        return messagesStore.upsert(newMessage)
-    }
-
-    /*
-        Handles messages that may be stuck in 'sending' or 'error' states
-    */
-    var getSendingMessagesResultsHandler = function(error, messages) {
-        if(error) {
-            console.log("in handler error:  " +error)
-        } else {
-            messages.forEach(function(message){
-                if(message.to){
-                    var contact = getContact(message.to)
-                    if(contact) {
-                        messagesStore.find({
-                            to: message.to,
-                            status: { '$in' : ['sending','error']}
-                        }).forEach(function(storedMessage){
-                            var encrypted_text = encrypt(storedMessage.text, contact.publicKey)
-                            var encrypted_from = encrypt(storedMessage.from, contact.publicKey)
-                            if(encrypted_text === message.body && encrypted_from === message.from) {
-                                storedMessage.status = 'sent'
-                                messagesStore.update(storedMessage)
-                            }
-                        })
-                    } else {
-                        console.log("retrieved message for unknown contact: "+JSON.stringify(message))
-                    }
-                }
-            })
-        }
-    }
-
     var addContactResultHandler = function(error, publicKeys) {
         if(error) {
-            console.log("error: "+error)
+            log('error', "addContactResultHandler error: "+error)
         } else {
             publicKeys.forEach(function(publicKey){
                 var exists = contactsStore.find({
@@ -894,7 +757,7 @@ publish('MESSAGETHREE')
             address: { '$regex': address }
         })
         if(found.length !== 1){
-            console.log("warning: found "+found.length+" accounts for "+address)
+            log('error', "warning: found "+found.length+" accounts for "+address)
         }
         return found[0]
     }
@@ -904,7 +767,7 @@ publish('MESSAGETHREE')
             address: { '$regex': address }
         })
         if(found.length !== 1){
-            console.log("warning: found "+found.length+" contacts for "+address)
+            log('error', "warning: found "+found.length+" contacts for "+address)
         }
         return found[0]
     }
@@ -972,6 +835,8 @@ publish('MESSAGETHREE')
                 return ' contact request sent <input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
             case MAM_ROOT_STATUS_PENDING:
                 return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">sending request to <b>'+contact.name + '</b>...</span>'
+            case MAM_ROOT_STATUS_SENDING_CONFIRM:
+                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">accepted request from <b>'+contact.name + '</b>...</span><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
             case MAM_ROOT_STATUS_SENT_CONFIRM:
                 return '<span class="glyphicon glyphicon-cog glyphicon-hourglass"></span> <span class="status">accepted request from <b>'+contact.name + '</b>...</span><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
             default:
@@ -1017,7 +882,7 @@ publish('MESSAGETHREE')
                 if(account.keyStatus === PUBLICKEY_STATUS_OK) {
                     item = '<input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><label id="accountLabel'+tag+'" class="'+labelClass+'" for="fromAddress'+ tag + '">' + userName + ' ' +deleteButton + '</label>'
                 } else if(account.keyStatus === PUBLICKEY_STATUS_SENDING) {
-                    item = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">creating  account <b>'+account.name + '</b>...</span>'
+                    item = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">creating account <b>'+account.name + '</b>...</span>'
                 } else if(account.keyStatus === PUBLICKEY_STATUS_NOT_FOUND) {
                     item = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">account <b>'+account.name + '</b> not found. <input type="radio" name="fromAddress" id="fromAddress' + tag + '" value="'+ userName +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Retry</button></span>'
                 } else {
@@ -1038,14 +903,11 @@ publish('MESSAGETHREE')
                 if(!contact.deleted && !contact.error) {
                     var tag = getPublicKeyLabel(contact.publicKey)
                     var userName = getKeyUsername(contact)
-                    var labelClass = ''
+                    var labelClass = currentContact && contact.address == currentContact.address ? 'current' : ''
                     var icon = ''
                     var pendingIcon = contactPendingIcon(contact)
                     if(pendingIcon){
                         icon = pendingIcon
-                    } else if(currentContact && contact.address == currentContact.address){
-                        labelClass = "current"
-                        icon = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
                     } else if(contact.newMessages > 0) {
                         icon = '<span class="new-messages">'+contact.newMessages+'</span>'
                     }
@@ -1061,10 +923,14 @@ publish('MESSAGETHREE')
     }
 
     var showMessageList = function() {
-        if(currentAccount && currentContact) {
+        if(currentContact) {
+            var fromAccount = getAccount(currentContact.account)
             var messages = messagesStore.find({
-                from: { '$in' :[currentAccount.address, currentContact.address]},
-                to: { '$in' :[currentAccount.address, currentContact.address]}
+                '$or': [{
+                    from: currentContact.address
+                  },{
+                    to: currentContact.address
+                  }]
             })
             for(var i = 0; i < newMessages.length; i++) {
                 var newMessage = newMessages[i]
@@ -1075,11 +941,10 @@ publish('MESSAGETHREE')
             var messagesList = $('#messagesList')
             messagesList.empty()
             messages.forEach(function (message) {
+               debug("showMessageList message", message)
+               debug("showMessageList contact", currentContact)
                 var inbound = message.from === currentContact.address
-                var from = message.from === currentAccount.address ?  currentAccount :  message.from === currentContact.address ? currentContact : null
-                if(from){
-                    from = getKeyUsername(from)
-                }
+                var from = message.to === currentContact.address ?  fromAccount.name :  message.from === currentContact.address ? currentContact.name : null
                 var messageId = message.$loki
                 var deleteButton = '<input type="radio" name="message" id="deleteMessage' + messageId + '" value="'+ messageId +'"><a class="deleteMessage"><span class="glyphicon glyphicon-trash" aria-hidden="true"></span></a>'
                 var info
@@ -1100,16 +965,6 @@ publish('MESSAGETHREE')
                 $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 500);
             });
         }
-    }
-
-    var showAlert = function(type, message) {
-        var newAlert = '<div class="alert alert-'+type+' alert-dismissible" role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>'+ message+'</div>';
-       // var html = $("#alerts").html() + newAlert
-        $("#alertsHolder").html(newAlert);
-    }
-
-    var hideAlerts = function() {
-        $("#alertsHolder").html('');
     }
 
     var validateSeed = function(value) {
@@ -1141,10 +996,10 @@ publish('MESSAGETHREE')
     var setDataStores = function() {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1, index: 0 }, function (error, addresses) {
             if (error) {
-                console.log(error);
+                log('error', error);
             } else {
                 if (addresses.length != 1) {
-                    console.log("no addresses found!");
+                    log('error', "no addresses found!");
                     return;
                 }
                 var address = addresses[0];
@@ -1175,18 +1030,18 @@ publish('MESSAGETHREE')
         var node_address = configuration.get('node_address').value
         $('#config_node_address').val(node_address)
         if(!validNodeAddress(node_address)) {
-            showAlert('warning', 'A valid node address is required. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.</a>')
+            toastr.warning('A valid node address is required. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon.</a>')
         } else {
             iota = new IOTA({
                 'provider': node_address
             });
             iota.api.getNodeInfo(function (error, results) {
                 if(error || !results) {
-                    showAlert('warning', node_address + ' returned an error. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.')
+                    toastr.warning(node_address + ' returned an error. Set node address by clicking the <span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span> icon above.')
                 } else if(results.latestMilestoneIndex !== results.latestSolidSubtangleMilestoneIndex) {
-                    showAlert('warning', node_address + ' is not fully synced. You may not be able to send messages.')
+                    toastr.warning( node_address + ' is not fully synced. You may not be able to send messages.')
                 } else {
-                    toastr.success('Node configuration is complete.', null, {timeOut: 1000})
+                    toastr.success('Node configuration is complete.', null, {timeOut: 700})
                 }
             })
         }
@@ -1224,7 +1079,7 @@ publish('MESSAGETHREE')
     }
 
     var checkForNewMessages = function () {
-        //getMessages(getInboundMessageAddresses(),getInboundMessagesResultsHandler)
+        getMessages()
         getContactRequests()
         setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
     }
@@ -1278,10 +1133,8 @@ publish('MESSAGETHREE')
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
         copyToClipboard(username)
-        if(DEBUG){
-            console.log("contact:"+JSON.stringify(getContact(getTagFromUsername(username))))
-        }
-         setCurrentContact(getContact(getTagFromUsername(username)))
+       debug("contactsList contact", getContact(getTagFromUsername(username)))
+        setCurrentContact(getContact(getTagFromUsername(username)))
     });
 
     $('#contactsList').on('click','a.accept',function(event) {
@@ -1326,9 +1179,7 @@ publish('MESSAGETHREE')
     $('#accountsList').on('click','label',function() {
         var username = $(this).prev().val()
         copyToClipboard(username)
-        if(DEBUG){
-            console.log("account:"+JSON.stringify(getAccount(getTagFromUsername(username))))
-        }
+       debug("account",getAccount(getTagFromUsername(username)))
         setCurrentAccount(getAccount(getTagFromUsername(username)))
     });
 
@@ -1363,11 +1214,11 @@ publish('MESSAGETHREE')
         var message = $("#message").val();
         $("#message").val('');
         if(message.match(/^\s*$/)) {
-            showAlert('warning',"Message is blank!")
-        //} else if(!(currentAccount && currentContact)) {
-        //    showAlert('warning',"Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")
+            toastr.warning("Message is blank!")
+        } else if(!(currentAccount && currentContact)) {
+            toastr.warning("Select an <b>Account</b> to send from and a <b>Contact</b> to send to.")
         } else {
-            createMessage(message, currentAccount, currentContact)
+            createMessage(message, currentContact)
         }
     })
 
@@ -1375,7 +1226,7 @@ publish('MESSAGETHREE')
         var messageId = $(this).prev().val()
         var results = messagesStore.find({$loki: parseInt(messageId)})
         // TODO check and handle cases where results.length != 1
-        sendMessage(results[0])
+        resendMessage(results[0])
     });
 
     $('#messagesList').on('click','a.deleteMessage',function() {
@@ -1476,6 +1327,19 @@ publish('MESSAGETHREE')
             }
         }
         return ''
+    }
+
+    var log = function(level, message, object={}) {
+        const log_levels = [
+            'debug', 'warning', 'error'
+        ]
+        if(log_levels.indexOf(level) >= log_levels.indexOf(LOG_LEVEL)) {
+            console.log(level + ': ' + message + ': '+JSON.stringify(object))
+        }
+    }
+
+    var debug = function(message, object) {
+       log('debug', message, object)
     }
 
     /*
