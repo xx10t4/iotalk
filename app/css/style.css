@@ -161,7 +161,7 @@ html {
   border-radius: 12px;
 }
 
-.users-section a {
+.users-section a.delete, .users-section a.add-user {
   float: right;
 }
 
@@ -200,8 +200,19 @@ html {
   border-radius: 5px;
 }
 
-.users-section label.current a.delete {
+.users-section label.pending {
+  border-radius: 5px;
+  border: solid 1px;
+  border-color: rgba(249, 164, 0, 1);
+}
+
+.users-section label.current a {
   color: #ffffff;
+}
+
+.users-section .pendingInfo, .users-section .pendingInfo a {
+  color: rgba(249, 164, 0, 1);
+  font-weight: normal;
 }
 
 .messages-section, .message-input{
