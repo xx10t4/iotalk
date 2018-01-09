@@ -304,14 +304,14 @@ $(document).ready(function () {
         toContact.mamStates.push(mamMessage.state)
         toContact.mamRootStatus = MAM_ROOT_STATUS_SENDING_REQUEST
         contactsStore.update(toContact)
+        showContactsList();
 
         sendTransfers([tangleMessage], tangleDepth, minWeightMagnitude, sendContactRequestResultsHandler, {contact: toContact})
-        showContactsList();
         }
 
     var sendContactConfirm = function(toContact, toMamRoot) {
 
-        let fromMamRoot = contact.inboundMamRoots[toMamRoot].toKey
+        let fromMamRoot = toContact.inboundMamRoots[toMamRoot].toKey
         sendTransfers([createMKEPMessage(MKEP_CONFIRM, toContact, fromMamRoot, toMamRoot)], tangleDepth, minWeightMagnitude, sendContactConfirmResultsHandler, {contact: toContact})
         showContactsList();
         }
@@ -321,18 +321,25 @@ $(document).ready(function () {
         toContact.mamStates = toContact.mamStates || []
         let mamState = Mam.changeMode(Mam.init(iota), 'private')
         let mamMessage = Mam.create(mamState, 'Initial Message')
-        var toMamRoot = mamMessage.state.channel.next_root
+        let toMamRoot = mamMessage.state.channel.next_root
 
-        var tangleMessages = []
+        // Decide which request to accept
+        let fromRootToAccept = null
+        let timestamp = 0
         Object.keys(toContact.inboundMamRoots).forEach(function (fromMamRoot) {
-            toContact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_SENDING_ACCEPT
-            tangleMessages.push(createMKEPMessage(MKEP_ACCEPT, toContact, toMamRoot, fromMamRoot))
+            let inboundMamRoot = toContact.inboundMamRoots[fromMamRoot]
+            if(inboundMamRoot.status === MAM_ROOT_STATUS_RECEIVED_REQUEST && inboundMamRoot.timestamp > timestamp){
+                fromRootToAccept = fromMamRoot
+                timestamp = inboundMamRoot.timestamp
+            }
         })
-
-        toContact.mamStates.push(mamMessage.state)
-        contactsStore.update(toContact)
-
-        sendTransfers(tangleMessages, tangleDepth, minWeightMagnitude, sendContactAcceptResultsHandler, {contact: toContact})
+        if(fromRootToAccept) {
+            toContact.inboundMamRoots[fromRootToAccept].status = MAM_ROOT_STATUS_SENDING_ACCEPT
+            toContact.inboundMamRoots[fromRootToAccept].timestamp = dateToTimestamp()
+            toContact.mamStates.push(mamMessage.state)
+            contactsStore.update(toContact)
+            sendTransfers([createMKEPMessage(MKEP_ACCEPT, toContact, toMamRoot, fromRootToAccept)], tangleDepth, minWeightMagnitude, sendContactAcceptResultsHandler, {contact: toContact})
+        }
         showContactsList();
     }
 
@@ -570,12 +577,47 @@ $(document).ready(function () {
         return decrypted
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     var upateContactFromContactRequestMessages = function(messages) {
-        messages.sort((a,b) => {return a.timestamp - b.timestamp}).forEach(function(message){
-            let contact = findOrCreateContact(message)
+        messages.sort((a,b) => {return a.timestamp - b.timestamp})
+        let exists = contactsStore.find({
+            account: messages[0].account,
+            address: messages[0].fromAddress
+        })
+        let contact = exists[0]
+        messages.forEach(function(message){
+
+            if((!contact && message.command !== MKEP_REQUEST) || // If no contact, ignore any message that is before a MKEP_REQUEST
+                (contact && contact.deleted)) { // If contact is blocked, ignore all messages
+                return
+            }
+
             switch(message.command) {
                 case MKEP_REQUEST:
-                debug("ASDFASDFASDFASDF")
+                    if(!contact) {
+                        contact = createContact(message)
+                    }
                     contact.inboundMamRoots = contact.inboundMamRoots || {}
                     if(!contact.inboundMamRoots[message.fromKey]) {
                         contact.inboundMamRoots[message.fromKey] = {
@@ -587,7 +629,10 @@ $(document).ready(function () {
                     contactsStore.update(contact)
                 case MKEP_ACCEPT:
                     contact.inboundMamRoots = contact.inboundMamRoots || {}
-                    if(isValidToMamRoot(contact, message.toKey) && !contact.inboundMamRoots[message.fromKey]) {
+                    if(isValidToMamRoot(contact, message.toKey) &&
+                        (!contact.inboundMamRoots[message.fromKey] ||
+                            contact.inboundMamRoots[message.fromKey].status === MAM_ROOT_STATUS_SENDING_CONFIRM)
+                    ) {
                         contact.inboundMamRoots[message.fromKey] = {
                             status: MAM_ROOT_STATUS_SENDING_CONFIRM,
                             toKey: message.toKey,
@@ -614,19 +659,52 @@ $(document).ready(function () {
             }
 
         })
+        debug("contact", contact)
+
         showContactsList();
     }
 
 
-    var findOrCreateContact = function(message) {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    var createContact = function(message) {
         let exists = contactsStore.find({
             account: message.account,
             address: message.fromAddress
         })
         let contact = exists[0]
-            if(!contact){
-                // This is the first time seeing a message from this contact
-                contact = contactsStore.insert({
+        if(!contact){
+            // This is the first time seeing a message from this contact
+            contact = contactsStore.insert({
                 account: message.account,
                 address: message.fromAddress,
                 name: 'new contact request',
@@ -645,6 +723,7 @@ $(document).ready(function () {
                         c[0].name = publicKey.name
                         c[0].bundle = publicKey.bundle
                         contactsStore.update(c[0])
+                        showContactsList();
                     } else {
                         log('error', 'Found '+ c.length +' contacts for address '+publicKey.address)
                     }
@@ -881,11 +960,14 @@ $(document).ready(function () {
             }
         } else {
             if(results && results.contact) {
-                Object.keys(results.contact.inboundMamRoots).forEach(function (fromMamRoot) {
-                    contact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_SENT_ACCEPT
-                    contact.inboundMamRoots[fromMamRoot].timestamp = dateToTimestamp()
+                let toContact = results.contact
+                Object.keys(toContact.inboundMamRoots).forEach(function (fromMamRoot) {
+                    let inboundMamRoot = toContact.inboundMamRoots[fromMamRoot]
+                    if(toContact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_ACCEPT){
+                        toContact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_SENT_ACCEPT
+                        toContact.inboundMamRoots[fromMamRoot].timestamp = dateToTimestamp()
+                    }
                 })
-
             }
         }
         contactsStore.update(results.contact)
@@ -899,13 +981,23 @@ $(document).ready(function () {
             if(results && results.contact) {
                 results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
                 results.contact.mamRootStatusMessage = "Error in sendContactConfirmResultsHandler: "+error
-                results.contact.inboundMamRoots[message.fromKey].confirmationSent = false
+                let contact = results.contact
+                Object.keys(contact.inboundMamRoots).forEach(function (fromMamRoot) {
+                    if(contact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_CONFIRM){
+                        contact.inboundMamRoots[fromMamRoot].confirmationSent = false
+                    }
+                })
             }
         } else {
             if(results && results.contact) {
-                results.contact.mamRootStatus = MAM_ROOT_STATUS_ACCEPTED
-                results.contact.mamRootStatusMessage = ''
-                results.contact.inboundMamRoots[message.fromKey].confirmationSent = true
+                let contact = results.contact
+                Object.keys(contact.inboundMamRoots).forEach(function (fromMamRoot) {
+                    if(contact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_CONFIRM){
+                        contact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_ACCEPTED
+                        contact.inboundMamRoots[fromMamRoot].timestamp = dateToTimestamp()
+                        contact.inboundMamRoots[fromMamRoot].confirmationSent = true
+                    }
+                })
             }
         }
         contactsStore.update(results.contact)
@@ -1023,13 +1115,24 @@ $(document).ready(function () {
     }
 
     var getContactMamRootStatus = function(contact) {
+        if(contact.mamRootStatus === MAM_ROOT_STATUS_SENDING_REQUEST) {
+            return MAM_ROOT_STATUS_SENDING_REQUEST
+        }
         if(contact.mamRootStatus === MAM_ROOT_STATUS_SENT_REQUEST) {
             return MAM_ROOT_STATUS_SENT_REQUEST
+        }
+        if(contact.mamRootStatus === MAM_ROOT_STATUS_ERROR) {
+            return MAM_ROOT_STATUS_ERROR
         }
         if(contact.inboundMamRoots) {
             let status = null
             Object.keys(contact.inboundMamRoots).forEach(function(fromMamRoot){
-                const pendingStatuses = [MAM_ROOT_STATUS_RECEIVED_REQUEST, MAM_ROOT_STATUS_SENDING_ACCEPT, MAM_ROOT_STATUS_SENT_ACCEPT]
+                const pendingStatuses = [
+                    MAM_ROOT_STATUS_RECEIVED_REQUEST,
+                    MAM_ROOT_STATUS_SENDING_ACCEPT,
+                    MAM_ROOT_STATUS_SENT_ACCEPT,
+                    MAM_ROOT_STATUS_SENDING_CONFIRM
+                ]
                 if(pendingStatuses.indexOf(contact.inboundMamRoots[fromMamRoot].status) >= 0) {
                     status = contact.inboundMamRoots[fromMamRoot].status
                 }
@@ -1098,8 +1201,6 @@ $(document).ready(function () {
         $('#deletedContactsList').empty();
         if(contacts && contacts.length > 0) {
             contacts.forEach(function (contact) {
-                //debug("showContactsList contact", contact.address)
-                //debug("showContactsList contact", contact.name)
                 let userName = getKeyUsername(contact)
                 if(!contact.deleted && !contact.error) {
                     const isCurrentContact = currentContact && contact.address == currentContact.address
