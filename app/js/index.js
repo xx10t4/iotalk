@@ -105,72 +105,6 @@ $(document).ready(function () {
     const MESSAGE_STATUS_SENDING = 'sending'
     const MAM_ROOT_TAG = 'MAM9ROOT9999999999999999999'
 
-    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
-
-        // Validity check for number of arguments
-        if (arguments.length < 4) {
-            return callback(new Error("Invalid number of arguments"));
-        }
-
-        iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
-            if (error) return callback(error, callbackOptions)
-
-            // Workaround to fix IRI bug https://github.com/iotaledger/iri/pull/340
-            // Make sure transaction.tag == transaction.obsoleteTag
-            var transactions = trytes.map(function (transactionTrytes) {
-                return iota.utils.transactionObject(transactionTrytes);
-            });
-            for(var i = 0; i < transactions.length ; i++) {
-                transactions[i].obsoleteTag = transactions[i].tag
-            }
-            trytes = transactions.map(function(transactionObject) {
-                return iota.utils.transactionTrytes(transactionObject)
-            })
-            // END workaround
-
-            iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
-                if (error) return callback(error, callbackOptions)
-
-                addToSendingQueue(toApprove, minWeightMagnitude, trytes, callback, callbackOptions)
-
-            })
-        })
-    }
-
-    var addToSendingQueue = function(toApprove, minWeightMagnitude, trytes, callback, callbackOptions) {
-        const queueItem = {
-            toApprove: toApprove,
-            trytes: trytes,
-            callback: callback,
-            callbackOptions: callbackOptions
-        }
-        sendingQueue.push(queueItem)
-    }
-
-    var sendNextMessage = function() {
-        if(ccurlAvailable && sendingQueue.length > 0) {
-            const ccurlPath = getCcurlPath();
-            let queueItem = sendingQueue.shift()
-            let callback = queueItem.callback
-            let callbackOptions = queueItem.callbackOptions
-
-            ccurlAvailable = false
-            ccurlInterface(queueItem.toApprove.trunkTransaction, queueItem.toApprove.branchTransaction, minWeightMagnitude, queueItem.trytes, ccurlPath, function (error, attached) {
-                ccurlAvailable = true
-                    if (error) return callback(error, callbackOptions)
-
-                    iota.api.storeTransactions(attached, function (error, success) {
-                        if (error) return callback(error, callbackOptions);
-                    })
-                    iota.api.broadcastTransactions(attached, function (error, success) {
-                        if (error) return callback(error, callbackOptions);
-                         return callback(null, Object.assign({},success, callbackOptions))
-                    })
-                    iota.api.getNodeInfo(function (error, results) {})
-                })
-    }
-    }
-
     /*
         creates a new account and sends the public key to the tangle
     */
@@ -240,6 +174,7 @@ $(document).ready(function () {
                         publicKey.newMessages = 0
                         publicKey.account = fromAccount.address
                         contact = publicKey
+                        contact.mamData = {inBound: {}, outBound: {}}
                         contactsStore.insert(publicKey);
                     } else {
                         contact = exists[0]
@@ -294,14 +229,10 @@ $(document).ready(function () {
 
     var sendContactRequest = function(toContact) {
 
-        toContact.mamStates = toContact.mamStates || []
-        let mamState = Mam.changeMode(Mam.init(iota), 'private')
-        let mamMessage = Mam.create(mamState, 'Initial Message')
-
-        var fromMamRoot = mamMessage.state.channel.next_root
+        let mamState = getActiveMamState(toContact)
+        var fromMamRoot = mamState.channel.next_root
         var tangleMessage = createMKEPMessage(MKEP_REQUEST, toContact, fromMamRoot)
 
-        toContact.mamStates.push(mamMessage.state)
         toContact.mamRootStatus = MAM_ROOT_STATUS_SENDING_REQUEST
         contactsStore.update(toContact)
         showContactsList();
@@ -309,19 +240,24 @@ $(document).ready(function () {
         sendTransfers([tangleMessage], tangleDepth, minWeightMagnitude, sendContactRequestResultsHandler, {contact: toContact})
         }
 
-    var sendContactConfirm = function(toContact, toMamRoot) {
+    var sendContactConfirm = function(contact, toMamRoot) {
 
-        let fromMamRoot = toContact.inboundMamRoots[toMamRoot].toKey
-        sendTransfers([createMKEPMessage(MKEP_CONFIRM, toContact, fromMamRoot, toMamRoot)], tangleDepth, minWeightMagnitude, sendContactConfirmResultsHandler, {contact: toContact})
-        showContactsList();
+        let newestConfirmingMamRoot = getNewestMamRoots(contact, [MAM_ROOT_STATUS_SENDING_CONFIRM, MAM_ROOT_STATUS_ERROR])
+        if(newestConfirmingMamRoot && newestConfirmingMamRoot.toMamRoot){
+            let fromMamRoot = newestConfirmingMamRoot.toMamRoot
+            let toMamRoot = newestConfirmingMamRoot.fromMamRoot
+            contact.mamRootStatus = MAM_ROOT_STATUS_SENDING_CONFIRM
+            contact.mamRootStatusMessage = ''
+            contactsStore.update(contact)
+            sendTransfers([createMKEPMessage(MKEP_CONFIRM, contact, fromMamRoot, toMamRoot)], tangleDepth, minWeightMagnitude, sendContactConfirmResultsHandler, {contact: contact})
         }
+        showContactsList();
+    }
 
     var sendContactAccept = function(toContact) {
 
-        toContact.mamStates = toContact.mamStates || []
-        let mamState = Mam.changeMode(Mam.init(iota), 'private')
-        let mamMessage = Mam.create(mamState, 'Initial Message')
-        let toMamRoot = mamMessage.state.channel.next_root
+        let mamState = getActiveMamState(toContact)
+        let toMamRoot = mamState.channel.next_root
 
         // Decide which request to accept
         let fromRootToAccept = null
@@ -336,7 +272,6 @@ $(document).ready(function () {
         if(fromRootToAccept) {
             toContact.inboundMamRoots[fromRootToAccept].status = MAM_ROOT_STATUS_SENDING_ACCEPT
             toContact.inboundMamRoots[fromRootToAccept].timestamp = dateToTimestamp()
-            toContact.mamStates.push(mamMessage.state)
             contactsStore.update(toContact)
             sendTransfers([createMKEPMessage(MKEP_ACCEPT, toContact, toMamRoot, fromRootToAccept)], tangleDepth, minWeightMagnitude, sendContactAcceptResultsHandler, {contact: toContact})
         }
@@ -355,7 +290,6 @@ $(document).ready(function () {
         if(toMamRoot) {
             msg.toKey = encrypt(toMamRoot, contact.publicKey)
         }
-        debug("createMKEPMessage", msg)
         return {
             address: contact.address,
             value: 0,
@@ -364,18 +298,69 @@ $(document).ready(function () {
         }
     }
 
+
+
+    var migrate = function() {
+        var contacts = contactsStore.all()
+
+
+        if(contacts && contacts.length > 0) {
+            contacts.forEach(function (contact) {
+
+                var mamStates = contact.mamStates
+                if(!mamStates && contact.mamData.outBound.mamStates) {
+                    mamStates = []
+                    Object.keys(contact.mamData.outBound.mamStates).forEach(function(ms){
+
+                        mamStates.push(contact.mamData.outBound.mamStates[ms])
+                    })
+                }
+                var inbound = null
+                if(contact.mamData && contact.mamData.inBound) {
+                    inbound = contact.mamData.inBound
+                }
+                if(!inbound){
+                    inbound = {
+                        mamRoots: copyObject(contact.inboundMamRoots),
+                        activeMamRoots: copyObject(contact.activeMamRoots)
+                    }
+                }
+                var newMamStates = copyObject(mamStates)
+                contact.mamData = {
+                    outBound:{
+                        mamStates: newMamStates,
+                        activeMamState: null
+                    },
+                    inBound: inbound
+                }
+                contactsStore.update(contact)
+
+                contact.mamStates = null
+                contact.inboundMamRoots = null
+                contact.activeMamRoots = null
+
+                contactsStore.update(contact)
+
+            })
+        }
+    }
+
+
+
+    var copyObject = function(obj) {
+        return JSON.parse(JSON.stringify(obj))
+    }
     /*
         creates a new MAM message
     */
     var createMessage = function(messageText, toContact) {
 
-        let mamState  = getOutboundMamState(toContact)
-        debug('createMessage '+messageText+ ' mamteState', mamState)
+        let mamState  = getActiveMamState(toContact)
         let mamMessage = Mam.create(mamState, iota.utils.toTrytes(messageText))
+        setActiveMamState(mamMessage.state)
         let localMessage = {
             text: messageText,
             to: toContact.address,
-            mamState: mamMessage.state,
             mamAddress: mamMessage.address,
             mamRoot: mamMessage.root,
             status: MESSAGE_STATUS_SENDING
@@ -384,20 +369,71 @@ $(document).ready(function () {
        sendMessage(mamMessage, localMessage)
     }
 
-    var getOutboundMamState = function(toContact) {
-        var messages = messagesStore.find({
-            to: toContact.address
-        })
-        let mamState = null
-        if(messages.length > 0 && messages[messages.length - 1].mamState) {
-            let message = messages[messages.length - 1]
-            debug('getOutboundMamState from message', message)
-            mamState = message.mamState
+    var getActiveMamState = function(contact) {
+        if(contact.mamData.outBound.activeMamState) {
+            return contact.mamData.outBound.activeMamState
         } else {
-            debug('getOutboundMamState from contact', toContact)
-            mamState = toContact.mamState
+            return initializeActiveMamState(contact)
         }
-        return JSON.parse(JSON.stringify(mamState))
+    }
+
+    var initializeActiveMamState = function(contact) {
+        let mamState = null
+        if(contact.mamData.outBound.mamStates.length > 0) {
+            mamState = contact.mamData.outBound.mamStates[contact.mamData.outBound.mamStates.length - 1]
+        } else {
+            let mamState = Mam.changeMode(Mam.init(iota), 'private')
+            mamState = Mam.create(mamState, 'Initial Message').state
+            contact.mamData.outBound.mamStates = [mamState]
+        }
+        setActiveMamState(contact, mamState)
+        return mamState
+    }
+
+    var setActiveMamState = function(contact, mamState) {
+        if(mamState) {
+            contact.mamData.outBound.activeMamState = copyObject(mamState)
+            contactsStore.update(contact)
+        }
+    }
+
+    var getMamStateByMamRoot = function(contact, mamRoot, setAsActive = false) {
+        let mamState = null
+        if(contact.mamData.outBound.mamStates) {
+            contact.mamData.outBound.mamStates.forEach(function(mamState2){
+                if(mamState2.channel.next_root === mamRoot) {
+                    mamState = mamState2
+                }
+            })
+        }
+        if(mamState && setAsActive) {
+            setActiveMamState(contact, mamState)
+        }
+        return mamState
+    }
+
+
+    var getNewestMamRoots = function(contact, statuses = [MAM_ROOT_STATUS_ACCEPTED]) {
+        // Find the newest valid mamRoot pair
+        let fromRootToAccept = null
+        let timestamp = 0
+        Object.keys(contact.mamData.inBound.mamRoots).forEach(function (fromMamRoot) {
+            let inboundMamRoot = contact.mamData.inBound.mamRoots[fromMamRoot]
+            if(statuses.indexOf(inboundMamRoot.status) >= 0 &&
+                inboundMamRoot.timestamp > timestamp &&
+                isValidAddress( inboundMamRoot.toKey)
+            ){
+                fromRootToAccept = fromMamRoot
+                timestamp = inboundMamRoot.timestamp
+            }
+        })
+        if(fromRootToAccept && contact.mamData.inBound.mamRoots[fromRootToAccept]) {
+            let toMamRoot = contact.mamData.inBound.mamRoots[fromRootToAccept].toKey
+            let status = contact.mamData.inBound.mamRoots[fromRootToAccept].status
+            return  {fromMamRoot: fromRootToAccept, toMamRoot: toMamRoot, status: status}
+
+        }
+        return null
     }
 
     /*
@@ -433,73 +469,73 @@ $(document).ready(function () {
         Mam.init(iota)
         contactsStore.find({}).forEach(function(contact){
             if(contact.mamRootStatus !== MAM_ROOT_STATUS_BLOCKED) {
-                if(contact.activeMamRoots) {
-                    contact.activeMamRoots.forEach(function(mamRoot) {
+                getActiveInboundMamRoots(contact).forEach(function(mamRoot) {
                     const fetch = async () => {
-                            let result = await Mam.fetch(mamRoot, 'private')
+                        let result = await Mam.fetch(mamRoot, 'private')
                         if(result) {
-                                let nextRoot = result.nextRoot
+                            let nextRoot = result.nextRoot
                             result.messages.map(function(message){
                                 return iota.utils.fromTrytes(message)
                             }).forEach(function(message){
-                                    let existing = messagesStore.find({
-                                        text: message,
-                                        from: contact.address,
-                                        nextRoot: nextRoot
-                                    })
-                                    if(existing.length === 0){
-                                        messagesStore.insert({
+                                let existing = messagesStore.find({
+                                    text: message,
+                                    from: contact.address,
+                                    nextRoot: nextRoot
+                                })
+                                if(existing.length === 0){
+                                    messagesStore.insert({
                                     text: message,
                                     from: contact.address,
                                     nextRoot: nextRoot,
                                     timestamp: dateToTimestamp()
-                                        })
-                                        contact.newMessages += 1
-                                        updateActiveMamRoots(contact, nextRoot, mamRoot)
-                               }
-
-                                    //contactsStore.update(contact)
+                                    })
+                                    contact.newMessages += 1
+                                    updateActiveInboundMamRoots(contact, nextRoot, mamRoot)
+                                }
                             })
                             showMessageList()
-                                showContactsList()
+                            showContactsList()
                         }
                     }
-                    fetch()
-                    })
-                }
-
+                fetch()
+                })
             }
         })
     }
 
-    var updateActiveMamRoots = function(contact, newRoot=null, oldRoot=null) {
-        let activeMamRoots = contact.activeMamRoots || []
-        let inactiveMamRoots = contact.inactiveMamRoots || []
+    var updateActiveInboundMamRoots = function(contact, newRoot=null, oldRoot=null) {
+        let activeMamRoots = copyObject(getActiveInboundMamRoots(contact))
         if(newRoot && activeMamRoots.indexOf(newRoot) < 0) {
             activeMamRoots.push(newRoot)
-        }
-        if(newRoot && inactiveMamRoots.indexOf(newRoot) >= 0) {
-            inactiveMamRoots.splice(inactiveMamRoots.indexOf(newRoot), 1);
         }
         if(oldRoot && activeMamRoots.indexOf(oldRoot) >= 0) {
             activeMamRoots.splice(activeMamRoots.indexOf(oldRoot), 1);
         }
         contact.activeMamRoots = activeMamRoots
-        contact.inactiveMamRoots = inactiveMamRoots
         contactsStore.update(contact)
     }
 
-/*    var updateInactiveMamRoots = function(contact, newRoot=null, oldRoot=null) {
-        let inactiveMamRoots = contact.inactiveMamRoots || []
-        if(newRoot && inactiveMamRoots.indexOf(newRoot) < 0) {
-            inactiveMamRoots.push(newRoot)
+    var getActiveInboundMamRoots = function(contact) {
+        return contact.mamData.inBound.activeMamRoots || []
+    }
+
+    var getInboundMamRoots = function(contact) {
+        return contact.mamData.inBound.mamRoots || {}
+    }
+
+    var getInboundMamRoot = function(contact, mamRoot) {
+        return getInboundMamRoots(contact)[mamRoot]
+    }
+
+    var addInboundMamRoot = function(contact, mamRoot, params = {}) {
+        if(!contact.mamData.inBound.mamRoots[mamRoot]) {
+            setInboundMamRoot(contact, mamRoot, params)
         }
-        if(oldRoot && inactiveMamRoots.indexOf(oldRoot) >= 0) {
-            inactiveMamRoots.splice(inactiveMamRoots.indexOf(oldRoot), 1);
-        }
-        contact.inactiveMamRoots = inactiveMamRoots
+    }
+    var setInboundMamRoot = function(contact, mamRoot, params = {}) {
+        contact.mamData.inBound.mamRoots[mamRoot] = copyObject(params)
         contactsStore.update(contact)
-    }*/
+    }
 
     var getContactRequests = function() {
         let accounts = accountsStore.all()
@@ -543,7 +579,6 @@ $(document).ready(function () {
                                 groupedMessages[account.address][decryptedMessage.fromAddress].push(decryptedMessage)
                             }
                         }
-                        debug("groupedMessages", groupedMessages)
 
                         Object.keys(groupedMessages).forEach(function (accountAddress) {
                             Object.keys(groupedMessages[accountAddress]).forEach(function (fromAddress) {
@@ -608,6 +643,7 @@ $(document).ready(function () {
         let contact = exists[0]
         messages.forEach(function(message){
 
+            debug("message",message)
             if((!contact && message.command !== MKEP_REQUEST) || // If no contact, ignore any message that is before a MKEP_REQUEST
                 (contact && contact.deleted)) { // If contact is blocked, ignore all messages
                 return
@@ -618,39 +654,39 @@ $(document).ready(function () {
                     if(!contact) {
                         contact = createContact(message)
                     }
-                    contact.inboundMamRoots = contact.inboundMamRoots || {}
-                    if(!contact.inboundMamRoots[message.fromKey]) {
-                        contact.inboundMamRoots[message.fromKey] = {
+                    if(!getInboundMamRoot(contact, message.fromKey)) {
+                        addInboundMamRoot(contact, message.fromKey, {
                             status: MAM_ROOT_STATUS_RECEIVED_REQUEST,
-                            toKey: message.toKey,
+                            toKey: null,
                             timestamp: message.timestamp
-                        }
+                        })
                     }
-                    contactsStore.update(contact)
                 case MKEP_ACCEPT:
-                    contact.inboundMamRoots = contact.inboundMamRoots || {}
                     if(isValidToMamRoot(contact, message.toKey) &&
-                        (!contact.inboundMamRoots[message.fromKey] ||
-                            contact.inboundMamRoots[message.fromKey].status === MAM_ROOT_STATUS_SENDING_CONFIRM)
+                        (!getInboundMamRoot(contact, message.fromKey) ||
+                        getInboundMamRoot(contact, message.fromKey).status === MAM_ROOT_STATUS_SENDING_CONFIRM)
                     ) {
-                        contact.inboundMamRoots[message.fromKey] = {
+                        addInboundMamRoot(contact, message.fromKey, {
                             status: MAM_ROOT_STATUS_SENDING_CONFIRM,
                             toKey: message.toKey,
                             timestamp: message.timestamp
-                        }
-                        contactsStore.update(contact)
+                        })
+                        updateActiveInboundMamRoots(contact, message.fromKey)
                         sendContactConfirm(contact, message.fromKey)
                     }
                 case MKEP_CONFIRM:
+                    let inboundMamRoot = getInboundMamRoot(contact, message.fromKey)
                     if(isValidToMamRoot(contact, message.toKey) &&
-                        contact.inboundMamRoots[message.fromKey] &&
-                        contact.inboundMamRoots[message.fromKey].status === MAM_ROOT_STATUS_SENT_ACCEPT
+                        inboundMamRoot &&
+                        inboundMamRoot.status === MAM_ROOT_STATUS_SENT_ACCEPT
                     ) {
-                        contact.inboundMamRoots[message.fromKey].toKey = message.toKey
-                        contact.inboundMamRoots[message.fromKey].status = MAM_ROOT_STATUS_ACCEPTED
-                        contact.inboundMamRoots[message.fromKey].timestamp = message.timestamp
+                       setInboundMamRoot(contact, message.fromKey, {
+                            status: MAM_ROOT_STATUS_ACCEPTED,
+                            toKey: message.toKey,
+                            timestamp: message.timestamp
+                        })
+                        updateActiveInboundMamRoots(contact, message.fromKey)
                     }
-                    contactsStore.update(contact)
                 case MKEP_REMOVE:
                     // TODO mark removed
                 case MKEP_REPLACE:
@@ -659,7 +695,6 @@ $(document).ready(function () {
             }
 
         })
-        debug("contact", contact)
 
         showContactsList();
     }
@@ -722,7 +757,7 @@ $(document).ready(function () {
                         c[0].publicKey = publicKey.publicKey
                         c[0].name = publicKey.name
                         c[0].bundle = publicKey.bundle
-                        contactsStore.update(c[0])
+                       contactsStore.update(c[0])
                         showContactsList();
                     } else {
                         log('error', 'Found '+ c.length +' contacts for address '+publicKey.address)
@@ -735,62 +770,15 @@ $(document).ready(function () {
 
     var isValidAddress = function(address) {
         return address && iota.valid.isAddress(address)
-                            }
+    }
 
     var isValidMKEPCommand = function(command) {
         return MKEP_COMMANDS.indexOf(command >= 0)
-                        }
+    }
 
     var isValidToMamRoot = function(contact, toMamRoot) {
-        if(contact.mamStates && isValidAddress(toMamRoot)){
-            for(var i = 0 ; i < contact.mamStates.length ; i++) {
-                if(contact.mamStates[i].channel.next_root == toMamRoot){
-                    return true
-                }
-            }
-        }
-        return false
+        return getMamStateByMamRoot(contact, toMamRoot) !== null
     }
-    /*
-        Returns an array of tangle addresses for inbound messages to any of the accounts
-    */
-    var getInboundMessageAddresses = function() {
-        var addresses = []
-        // get addresses associated with account keys
-        accountsStore.all().forEach(function(account) {
-            var address = account.address
-            if(addresses.indexOf(address) < 0){
-                addresses.push(address)
-            }
-        })
-        var messages = messagesStore.find({
-            from: { '$in' : addresses}
-        })
-        messages.forEach(function(message){
-            address = message.replyAddress
-            if(address && (addresses.indexOf(address) < 0)){
-                addresses.push(address)
-            }
-        })
-
-        return addresses
-     }
-
-    /*
-        Returns an array of tangle addresses for outgoing messages currently in 'sending' state
-    */
-    var getSendingMessagesAddresses = function() {
-        var addresses = []
-        messagesStore.find({
-            status: { '$in' : ['sending','error']}
-        }).forEach(function(message){
-            var address = message.address
-            if(addresses.indexOf(address) < 0){
-                addresses.push(address)
-            }
-        })
-        return addresses
-     }
 
     /**
      *
@@ -833,7 +821,7 @@ $(document).ready(function () {
     var refreshAccountKeys = function() {
         accountsStore.all().forEach(function (account, idx) {
             getPublicKey(account.address, function(error, publicKeys){
-                setStatus(error, publicKeys, account)
+                setKeyStatus(error, publicKeys, account)
                 accountsStore.update(account)
                 showAccountsList()
             })
@@ -848,7 +836,7 @@ $(document).ready(function () {
     var refreshContactKeys = function() {
         contactsStore.all().forEach(function (contact, idx) {
             getPublicKey(contact.address, function(error, publicKeys){
-                setStatus(error, publicKeys, contact)
+                setKeyStatus(error, publicKeys, contact)
                 contact.name = publicKeys[0].name
                 contact.publicKey = publicKeys[0].publicKey
                 contactsStore.update(contact)
@@ -878,7 +866,7 @@ $(document).ready(function () {
     /*
         set status and statusMessage on contact or account record
     */
-    var setStatus = function(error, publicKeys, user) {
+    var setKeyStatus = function(error, publicKeys, user) {
         user.keyStatus = PUBLICKEY_STATUS_OK
         user.keyStatusMessage = ''
         if(error) {
@@ -960,12 +948,13 @@ $(document).ready(function () {
             }
         } else {
             if(results && results.contact) {
-                let toContact = results.contact
-                Object.keys(toContact.inboundMamRoots).forEach(function (fromMamRoot) {
-                    let inboundMamRoot = toContact.inboundMamRoots[fromMamRoot]
-                    if(toContact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_ACCEPT){
-                        toContact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_SENT_ACCEPT
-                        toContact.inboundMamRoots[fromMamRoot].timestamp = dateToTimestamp()
+                let contact = results.contact
+                getInboundMamRoots(contact).forEach(function (fromMamRoot) {
+                    let inboundMamRoot = getInboundMamRoot(contact, fromMamRoot)
+                    if(inboundMamRoot.status === MAM_ROOT_STATUS_SENDING_ACCEPT){
+                        inboundMamRoot.status = MAM_ROOT_STATUS_SENT_ACCEPT
+                        inboundMamRoot.timestamp = dateToTimestamp()
+                        setInboundMamRoot(contact, fromMamRoot, inboundMamRoot)
                     }
                 })
             }
@@ -975,27 +964,22 @@ $(document).ready(function () {
     }
 
     var sendContactConfirmResultsHandler = function(error, results) {
-        debug("sendContactConfirmResultsHandler results",results)
         if (error) {
             log('error', "sendContactConfirmResultsHandler error: ",JSON.stringify(error))
             if(results && results.contact) {
                 results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
                 results.contact.mamRootStatusMessage = "Error in sendContactConfirmResultsHandler: "+error
-                let contact = results.contact
-                Object.keys(contact.inboundMamRoots).forEach(function (fromMamRoot) {
-                    if(contact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_CONFIRM){
-                        contact.inboundMamRoots[fromMamRoot].confirmationSent = false
-                    }
-                })
             }
         } else {
             if(results && results.contact) {
                 let contact = results.contact
-                Object.keys(contact.inboundMamRoots).forEach(function (fromMamRoot) {
-                    if(contact.inboundMamRoots[fromMamRoot].status === MAM_ROOT_STATUS_SENDING_CONFIRM){
-                        contact.inboundMamRoots[fromMamRoot].status = MAM_ROOT_STATUS_ACCEPTED
-                        contact.inboundMamRoots[fromMamRoot].timestamp = dateToTimestamp()
-                        contact.inboundMamRoots[fromMamRoot].confirmationSent = true
+                getInboundMamRoots(contact).forEach(function (fromMamRoot) {
+                    let inboundMamRoot = getInboundMamRoot(contact, fromMamRoot)
+                    if(inboundMamRoot.status === MAM_ROOT_STATUS_SENDING_CONFIRM){
+                        inboundMamRoot.status = MAM_ROOT_STATUS_ACCEPTED
+                        inboundMamRoot.timestamp = dateToTimestamp()
+                        inboundMamRoot.confirmationSent = true
+                        setInboundMamRoot(contact, fromMamRoot, inboundMamRoot)
                     }
                 })
             }
@@ -1020,6 +1004,72 @@ $(document).ready(function () {
             showContactsList()
         }
     }
+
+    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
+
+        // Validity check for number of arguments
+        if (arguments.length < 4) {
+            return callback(new Error("Invalid number of arguments"));
+        }
+
+        iota.api.prepareTransfers(seed, transfers, function (error, trytes) {
+            if (error) return callback(error, callbackOptions)
+
+            // Workaround to fix IRI bug https://github.com/iotaledger/iri/pull/340
+            // Make sure transaction.tag == transaction.obsoleteTag
+            var transactions = trytes.map(function (transactionTrytes) {
+                return iota.utils.transactionObject(transactionTrytes);
+            });
+            for(var i = 0; i < transactions.length ; i++) {
+                transactions[i].obsoleteTag = transactions[i].tag
+            }
+            trytes = transactions.map(function(transactionObject) {
+                return iota.utils.transactionTrytes(transactionObject)
+            })
+            // END workaround
+
+            iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
+                if (error) return callback(error, callbackOptions)
+                addToSendingQueue(toApprove, minWeightMagnitude, trytes, callback, callbackOptions)
+            })
+        })
+    }
+
+    var addToSendingQueue = function(toApprove, minWeightMagnitude, trytes, callback, callbackOptions) {
+        const queueItem = {
+            toApprove: toApprove,
+            trytes: trytes,
+            callback: callback,
+            callbackOptions: callbackOptions
+        }
+        sendingQueue.push(queueItem)
+    }
+
+    var sendNextMessage = function() {
+        if(ccurlAvailable && sendingQueue.length > 0) {
+            const ccurlPath = getCcurlPath()
+            let queueItem = sendingQueue.shift()
+            let callback = queueItem.callback
+            let callbackOptions = queueItem.callbackOptions
+
+            ccurlAvailable = false
+            ccurlInterface(queueItem.toApprove.trunkTransaction, queueItem.toApprove.branchTransaction, minWeightMagnitude, queueItem.trytes, ccurlPath, function (error, attached) {
+                ccurlAvailable = true
+                if (error) return callback(error, callbackOptions)
+
+                iota.api.storeTransactions(attached, function (error, success) {
+                    if (error) return callback(error, callbackOptions);
+                })
+                iota.api.broadcastTransactions(attached, function (error, success) {
+                    if (error) return callback(error, callbackOptions);
+                        return callback(null, Object.assign({},success, callbackOptions))
+                })
+                iota.api.getNodeInfo(function (error, results) {})
+            })
+        }
+    }
+
+
 
     var getAccount = function(address) {
         var found = accountsStore.find({
@@ -1103,7 +1153,7 @@ $(document).ready(function () {
                 return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">confirming request to <b>'+contact.name + '</b>...</span>'
             case MAM_ROOT_STATUS_ERROR:
                 if(contact.mamRootStatusMessage =~ /Error in sendContactConfirmResultsHandler/) {
-                    return '<input type="radio" name="confirmContact" value="'+ contact.address +'"><a class="accept"><span class="glyphicon glyphicon-check" aria-hidden="true"></span> oops, confirmation failed. please try again.</a>'
+                    return '<input type="radio" name="confirmContact" value="'+ contact.address +'"><a class="confirm"><span class="glyphicon glyphicon-check" aria-hidden="true"></span> oops, confirmation failed. please try again.</a>'
                 } else if(contact.mamRootStatusMessage =~ /Error in sendContactAcceptResultsHandler/) {
                     return '<input type="radio" name="acceptContact" value="'+ contact.address +'"><a class="accept"><span class="glyphicon glyphicon-check" aria-hidden="true"></span> oops, please try again. accept new contact request</a>'
                 } else {
@@ -1124,26 +1174,22 @@ $(document).ready(function () {
         if(contact.mamRootStatus === MAM_ROOT_STATUS_ERROR) {
             return MAM_ROOT_STATUS_ERROR
         }
-        if(contact.inboundMamRoots) {
+        let inboundMamRoots = getInboundMamRoots(contact)
+        if(inboundMamRoots) {
             let status = null
-            Object.keys(contact.inboundMamRoots).forEach(function(fromMamRoot){
-                const pendingStatuses = [
+            const pendingStatuses = [
                     MAM_ROOT_STATUS_RECEIVED_REQUEST,
                     MAM_ROOT_STATUS_SENDING_ACCEPT,
                     MAM_ROOT_STATUS_SENT_ACCEPT,
                     MAM_ROOT_STATUS_SENDING_CONFIRM
                 ]
-                if(pendingStatuses.indexOf(contact.inboundMamRoots[fromMamRoot].status) >= 0) {
-                    status = contact.inboundMamRoots[fromMamRoot].status
-                }
-            })
+            if(getNewestMamRoots(contact, pendingStatuses)) {
+                status = getNewestMamRoots(contact, pendingStatuses).status
+            }
             if(status){
                 return status
             }
         }
-
-
-
     }
 
 // UI functions
@@ -1151,8 +1197,6 @@ $(document).ready(function () {
     var showMessenger = function() {
         $(".login_section").addClass("hidden");
         $(".messenger_section").removeClass("hidden");
-        setDataStores()
-
     }
 
     var showLogin = function(message = "") {
@@ -1239,7 +1283,6 @@ $(document).ready(function () {
             var messagesList = $('#messagesList')
             messagesList.empty()
             messages.forEach(function (message) {
-                debug("message", message)
                 var inbound = message.from === currentContact.address
                 var from = message.to === currentContact.address ?  fromAccount.name :  message.from === currentContact.address ? currentContact.name : null
                 var messageId = message.$loki
@@ -1262,6 +1305,22 @@ $(document).ready(function () {
                 $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 500);
             });
         }
+    }
+
+
+
+
+
+
+
+    /******************* Initialization functions *********************************/
+
+    /* Initalize the app UI after login */
+    var initialize = function(theSeed) {
+        // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
+        setSeed(theSeed);
+        showMessenger();
+        setDataStores();
     }
 
     var validateSeed = function(value) {
@@ -1323,7 +1382,11 @@ $(document).ready(function () {
         showContactsList()
         checkForNewMessages()
         checkMessageQueue()
+
+        // temp
+        //migrate()
     }
+
 
     var initConfiguration = function() {
         var node_address = configuration.get('node_address').value
@@ -1388,7 +1451,10 @@ $(document).ready(function () {
         setTimeout(checkMessageQueue, 1000)
     }
 
-    // UI Event handlers
+
+
+
+    /****************** UI Event handlers ********************/
 
     $("#login").on("click", function () {
         var seed_ = $("#userSeed").val();
@@ -1399,8 +1465,7 @@ $(document).ready(function () {
         }
         $("#login-message").addClass("hidden");
         // We modify the entered seed to fit the criteria of 81 chars, all uppercase and only latin letters
-        setSeed(seed_);
-        showMessenger();
+        initialize(seed_);
     });
 
     $("#logoutBtn").on("click", function () {
@@ -1448,6 +1513,13 @@ $(document).ready(function () {
         if(confirm(confirmMessage)){
             sendContactAccept(contact)
         }
+        showContactsList()
+        //showMessageList()
+    });
+
+    $('#contactsList').on('click','a.confirm',function(event) {
+        var address = $(this).prev().val()
+        sendContactConfirm(getContact(address))
         showContactsList()
         //showMessageList()
     });
@@ -1504,6 +1576,9 @@ $(document).ready(function () {
         if(confirm(confirmMessage)){
             messagesStore.remove(messages)
             accountsStore.remove(contact)
+            if(currentContact && currentContact.address === contact.address) {
+                currentContact = null
+            }
         }
         showAccountsList()
     });

@@ -48,12 +48,27 @@ var contactsStore = function(secret, dbFileName, callback = null) {
     params = {
         publicKey: "1,3,0,6,16,30,...",  // ntru public key
         name: "myHandle",
-        fingerprint: "ABCD...", // 81 Trytes string generated from publicKey hash
-        address: "ABCD...", // Tangle address where public key is stored
+        account: "ABCD...", // Tangle address where the associated account's public key is stored
+        address: "ABCD...", // Tangle address where the contact's public key is stored
+        mamData: {inBound:{}, outBound: {}}
     }
 */
 contactsStore.prototype.insert = function(params) {
-    var result = this.contacts.insert(params)
+    let defaults = {
+        mamData: {
+            inBound: {
+                mamRoots: {},
+                activeMamRoots: []
+            },
+            outBound: {
+                mamStates: [],
+                activeMamState: null
+            }
+        },
+        name: ''
+    }
+
+    var result = this.contacts.insert(Object.assign(defaults, params))
     this.db.saveDatabase()
     return result
 }
