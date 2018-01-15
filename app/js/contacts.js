@@ -67,8 +67,11 @@ contactsStore.prototype.insert = function(params) {
         },
         name: ''
     }
+    let newContact = Object.assign(defaults, params)
+    newContact.createdDate = this.dateToTimestamp()
+    console.log("contact insert "+JSON.stringify(newContact))
 
-    var result = this.contacts.insert(Object.assign(defaults, params))
+    var result = this.contacts.insert(newContact)
     this.db.saveDatabase()
     return result
 }
@@ -100,5 +103,13 @@ contactsStore.prototype.softRemove = function(object) {
     object.deleted = new Date()
     return this.update(object)
 }
+
+contactsStore.prototype.dateToTimestamp = function(date = null) {
+    if(date === null) {
+        date = new Date()
+    }
+    return Math.floor(date.getTime()/1000)
+}
+
 
 module.exports = contactsStore
