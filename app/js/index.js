@@ -32,12 +32,22 @@ $(document).ready(function () {
     const codec = require('text-encoding');
     const path = require("path");
     const toastr = require("toastr")
+    const winston = require("winston")
     const MessagesStore = require("./messages.js")
     const AccountsStore = require("./accounts.js")
     const ContactsStore = require("./contacts.js")
     const ConfigurationStore = require("./configuration.js")
 
+
     const LOG_LEVEL = 'debug' // valid values: 'debug', 'warning', 'error'
+
+    winston.cli()
+    var logger = new (winston.Logger)({
+        transports: [
+          new (winston.transports.Console)(),
+          new (winston.transports.File)({ filename: 'winston.log' })
+        ]
+      });
 
     // Initialize with bogus config until the real config is loaded
     var iota = new IOTA({
@@ -142,7 +152,7 @@ $(document).ready(function () {
 
         tag = getTagFromUsername(username)
         let newContact = {
-            name: username,
+            username: username,
             account: fromAccount.address,
             mamRootStatus: MAM_ROOT_STATUS_SENDING
         }
@@ -155,21 +165,27 @@ $(document).ready(function () {
                 let contact = null;
                 publicKeys.forEach(function(publicKey){
                     var exists = contactsStore.find({
-                        name: username,
+                        username: username,
                         account: fromAccount.address
                     })
-                    if(exists.length === 0){
+                    if(exists.length > 0){
                         let contact = exists[0]
                         contact.newMessages = 0
                         contact.publicKey = publicKey.publicKey
                         contact.name = publicKey.name
                         contact.address = publicKey.address
                         contact.bundle = publicKey.bundle
+                        contact.mamRootStatus = null
                         contactsStore.update(contact);
+                        for(var i = 1 ; i < exists.length ; i++) {
+                            contactsStore.remove(exists[i])
+                        }
                     }
+                    showContactsList()
                 })
-                }
+            }
         })
+        showContactsList()
     }
 
     /*
@@ -213,7 +229,7 @@ $(document).ready(function () {
     }
 
     var sendContactRequest = function(toContact) {
-
+        contactsStore.update(toContact)
         let mamState = getActiveMamState(toContact)
         var fromMamRoot = mamState.channel.next_root
         var tangleMessage = createMKEPMessage(toContact, fromMamRoot)
@@ -244,26 +260,33 @@ $(document).ready(function () {
         }
     }
 
-    var copyObject = function(obj) {
-        return JSON.parse(JSON.stringify(obj))
-    }
     /*
         creates a new MAM message
     */
     var createMessage = function(messageText, toContact) {
-        previousSentMesages = messagesStore.find({
-            to: toContact.address,
-            from: toContact.account
-        })
-        if(previousSentMesages.length === 0) {
-            sendContactRequest(toContact)
+        let message = {
+            timestamp: dateToTimestamp(),
+            text: messageText,
+
         }
 
+        logger.log("info", "createMessage to %s: %j", toContact.name, message);
+        if(toContact.mamRootStatus !== MAM_ROOT_STATUS_SENT) {
+            logger.log("info", "sendContactRequest %j", toContact);
+            sendContactRequest(toContact)
+            message.inboundMamRoots = Object.keys(getActiveInboundMamRoots(toContact))
+        }
         let mamState  = getActiveMamState(toContact)
-        let mamMessage = Mam.create(mamState, iota.utils.toTrytes(messageText))
+
+
+        logger.log("info", "createMessage getActiveMamState: %j", mamState);
+
+        let mamMessage = Mam.create(mamState, iota.utils.toTrytes(JSON.stringify(message)))
         setActiveMamState(mamMessage.state)
+        logger.log("info", "createMessage mamMessage.state: %j", mamMessage.state);
         let localMessage = {
-            text: messageText,
+            text: message.text,
+            timestamp: message.timestamp,
             to: toContact.address,
             from: toContact.account,
             mamAddress: mamMessage.address,
@@ -275,7 +298,7 @@ $(document).ready(function () {
     }
 
     var getActiveMamState = function(contact) {
-        if(contact.mamData.outBound.activeMamState) {
+        if(contact.mamData && contact.mamData.outBound && contact.mamData.outBound.activeMamState) {
             return contact.mamData.outBound.activeMamState
         } else {
             return initializeActiveMamState(contact)
@@ -287,9 +310,10 @@ $(document).ready(function () {
         if(contact.mamData.outBound.mamStates.length > 0) {
             mamState = contact.mamData.outBound.mamStates[contact.mamData.outBound.mamStates.length - 1]
         } else {
-            let mamState = Mam.changeMode(Mam.init(iota), 'private')
-            mamState = Mam.create(mamState, 'Initial Message').state
+            mamState = Mam.changeMode(Mam.init(iota), 'private')
+            mamState = copyObject(Mam.create(mamState, 'Initial Message').state)
             contact.mamData.outBound.mamStates = [mamState]
+            contactsStore.update(contact)
         }
         setActiveMamState(contact, mamState)
         return mamState
@@ -317,7 +341,6 @@ $(document).ready(function () {
         return mamState
     }
 
-
     /*
         creates a tangle transaction bundle that publishes a message
     */
@@ -330,7 +353,6 @@ $(document).ready(function () {
         }]
 
         localMessage.status = MESSAGE_STATUS_SENDING
-        localMessage.timestamp = dateToTimestamp()
         messagesStore.update(localMessage)
 
         sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
@@ -348,37 +370,69 @@ $(document).ready(function () {
 
     var getMessages = function() {
 
-        Mam.init(iota)
         contactsStore.find({}).forEach(function(contact){
+            if(contact.deleted || contact.blocked) {
+                return
+            }
             if(contact.mamRootStatus !== MAM_ROOT_STATUS_BLOCKED) {
-                Object.keys(getActiveInboundMamRoots(contact)).forEach(function(parentMamRoot) {
+
+                let mamRoots = getActiveInboundMamRoots(contact)
+                logger.log("info", "getMessages for %s", contact.name);
+                logger.log("info", "getMessages mamRoots %j", mamRoots);
+                Object.keys(mamRoots).forEach(function(parentMamRoot) {
                     let mamRoot = parentMamRoot
+                    logger.log("info", "getMessages parentMamRoot %s", parentMamRoot);
+                    if(mamRoots[parentMamRoot] && mamRoots[parentMamRoot].length > 0) {
+                        mamRoot = mamRoots[parentMamRoot]
+                    }
+                    logger.log("info", "getMessages mamRoot %s", mamRoot);
                     if(isValidAddress(mamRoot)) {
-                        const fetch = async () => {
+                       const fetch = async () => {
                             let result = await Mam.fetch(mamRoot, 'private')
                             if(result) {
                                 let nextRoot = result.nextRoot
+                                logger.log("info", "getMessages nextRoot %s", nextRoot);
+
                                 result.messages.map(function(message){
                                     return iota.utils.fromTrytes(message)
                                 }).forEach(function(message){
+
+                                    let text = null
+                                    let timestamp = null
+                                    let inboundMamRoots = []
+                                    try {
+                                        let messageObj = JSON.parse(message)
+                                        text = messageObj.text
+                                        timestamp = messageObj.timestamp
+                                        inboundMamRoots = messageObj.inboundMamRoots
+                                    } catch (e) {
+                                        // ignore message if it is not json
+                                        return
+                                    }
+                                    if(!(text && timestamp)) {
+                                        // ignore message if it is missing text and timestamp
+                                        return
+                                    }
                                     let existing = messagesStore.find({
-                                        text: message,
+                                        text: text,
+                                        timestamp: timestamp,
                                         from: contact.address,
-                                        nextRoot: nextRoot
+                                        to: contact.account,
                                     })
-                                    if(existing.length === 0){
+                                    if(existing.length === 0) {
                                         messagesStore.insert({
-                                        text: message,
-                                        from: contact.address,
-                                        nextRoot: nextRoot,
-                                        timestamp: dateToTimestamp()
+                                            text: text,
+                                            timestamp: timestamp,
+                                            from: contact.address,
+                                            to: contact.account,
+                                            parentMamRoot: parentMamRoot
                                         })
                                         contact.newMessages += 1
-                                        //updateActiveInboundMamRoots(contact, nextRoot, mamRoot)
+                                        updateActiveInboundMamRoots(contact, parentMamRoot, mamRoot)
+                                        logger.log("info", "getMessages NEW message %j, activeInboundRoots %j", message, getActiveInboundMamRoots(contact))
+                                        showContactsList()
                                     }
                                 })
-                                showMessageList()
-                                showContactsList()
                             }
                         }
                         fetch()
@@ -386,37 +440,23 @@ $(document).ready(function () {
                 })
             }
         })
+        showMessageList()
     }
 
-    var updateActiveInboundMamRoots = function(contact, newRoot=null) {
+    var updateActiveInboundMamRoots = function(contact, parentRoot, currentRoot = null) {
         let activeMamRoots = copyObject(getActiveInboundMamRoots(contact))
-        if(newRoot && Object.keys(activeMamRoots).indexOf(newRoot) < 0) {
-            activeMamRoots[newRoot] = []
-            contact.activeMamRoots = activeMamRoots
-            contactsStore.update(contact)
+        if(!activeMamRoots[parentRoot]) {
+            activeMamRoots[parentRoot] = null
         }
+        if(currentRoot) {
+            activeMamRoots[parentRoot] = currentRoot
+        }
+        contact.activeMamRoots = activeMamRoots
+        contactsStore.update(contact)
     }
 
     var getActiveInboundMamRoots = function(contact) {
         return contact.activeMamRoots || {}
-    }
-
-    var getInboundMamRoots = function(contact) {
-        return contact.mamData.inBound.mamRoots || {}
-    }
-
-    var getInboundMamRoot = function(contact, mamRoot) {
-        return getInboundMamRoots(contact)[mamRoot]
-    }
-
-    var addInboundMamRoot = function(contact, mamRoot, params = {}) {
-        if(!contact.mamData.inBound.mamRoots[mamRoot]) {
-            setInboundMamRoot(contact, mamRoot, params)
-        }
-    }
-    var setInboundMamRoot = function(contact, mamRoot, params = {}) {
-        contact.mamData.inBound.mamRoots[mamRoot] = copyObject(params)
-        contactsStore.update(contact)
     }
 
     var getContactRequests = function() {
@@ -507,12 +547,17 @@ $(document).ready(function () {
             }
         if(contact.blocked) {
             return
-                    }
+        }
+        logger.log("info", "upateContactFromContactRequestMessages contact %s", contact.name);
+
         messages.forEach(function(message){
+            logger.log("info", "upateContactFromContactRequestMessages message %j", message);
+
             if(isValidAddress(message.fromKey)) {
-                        updateActiveInboundMamRoots(contact, message.fromKey)
-                    }
+                updateActiveInboundMamRoots(contact, message.fromKey)
+            }
         })
+        logger.log("info", "upateContactFromContactRequestMessages contact %s: activeMamRoots %j", contact.name, contact.activeMamRoots);
         showContactsList();
     }
 
@@ -616,6 +661,7 @@ $(document).ready(function () {
     }
 
     var refreshContactKeys = function() {
+        let unique = {}
         contactsStore.all().forEach(function (contact, idx) {
             if(contact.address){
             getPublicKey(contact.address, function(error, publicKeys){
@@ -877,7 +923,7 @@ $(document).ready(function () {
     var pendingContactInfo = function(contact) {
         switch(contact.mamRootStatus) {
             case MAM_ROOT_STATUS_SENDING:
-                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">fecthing key for <b>'+contact.name + '</b>...</span>'
+                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">sending initialmessage key to <b>'+contact.name + '</b>...</span>'
             default:
                 return ''
         }
@@ -995,8 +1041,9 @@ $(document).ready(function () {
 
                 messagesList.append('<li class="message" id="'+ scrollId +'"><b>' + from + '</b> '+info+ '<br />'+message.text+'</li>')
 
-                $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 500);
             });
+            $('#messageScroll').animate({scrollTop: $('#messageScroll').prop("scrollHeight")}, 100);
+
         }
     }
 
@@ -1073,6 +1120,7 @@ $(document).ready(function () {
         refreshContactKeys()
         showAccountsList()
         showContactsList()
+        Mam.init(iota)
         checkForNewMessages()
         checkMessageQueue()
 
@@ -1134,7 +1182,7 @@ $(document).ready(function () {
     }
 
     var checkForNewMessages = function () {
-        getMessages()
+        //getMessages()
         getContactRequests()
         setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
     }
@@ -1195,7 +1243,6 @@ $(document).ready(function () {
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
         copyToClipboard(username)
-       debug("contactsList contact", getContact(getTagFromUsername(username)))
         setCurrentContact(getContact(getTagFromUsername(username)))
     });
 
@@ -1214,7 +1261,7 @@ $(document).ready(function () {
         }
         if(confirm(confirmMessage)){
             messagesStore.remove(messages)
-            contactsStore.softRemove(contact)
+            contactsStore.remove(contact)
         }
         showContactsList()
         //showMessageList()
@@ -1230,7 +1277,6 @@ $(document).ready(function () {
     $('#accountsList').on('click','label',function() {
         var username = $(this).prev().val()
         copyToClipboard(username)
-        debug("account",getAccount(getTagFromUsername(username)))
         setCurrentAccount(getAccount(getTagFromUsername(username)))
         showContactsList()
     });
@@ -1282,6 +1328,10 @@ $(document).ready(function () {
         var results = messagesStore.find({$loki: parseInt(messageId)})
         // TODO check and handle cases where results.length != 1
         resendMessage(results[0])
+    });
+
+    $('#getMessages').on('click',function() {
+        getMessages()
     });
 
     $('#messagesList').on('click','a.deleteMessage',function() {
@@ -1350,6 +1400,11 @@ $(document).ready(function () {
     }
 
     // Utilities
+
+    var copyObject = function(obj) {
+        return JSON.parse(JSON.stringify(obj))
+    }
+
     /*
         Returns a UNIX timestamp - number of seconds since the epoch
     */
@@ -1393,9 +1448,6 @@ $(document).ready(function () {
         }
     }
 
-    var debug = function(message, object) {
-       log('debug', message, object)
-    }
 
     /*
         ntru functions

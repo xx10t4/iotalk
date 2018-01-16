@@ -56,10 +56,6 @@ var contactsStore = function(secret, dbFileName, callback = null) {
 contactsStore.prototype.insert = function(params) {
     let defaults = {
         mamData: {
-            inBound: {
-                mamRoots: {},
-                activeMamRoots: []
-            },
             outBound: {
                 mamStates: [],
                 activeMamState: null
@@ -69,7 +65,6 @@ contactsStore.prototype.insert = function(params) {
     }
     let newContact = Object.assign(defaults, params)
     newContact.createdDate = this.dateToTimestamp()
-    console.log("contact insert "+JSON.stringify(newContact))
 
     var result = this.contacts.insert(newContact)
     this.db.saveDatabase()
