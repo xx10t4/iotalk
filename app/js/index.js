@@ -45,7 +45,13 @@ $(document).ready(function () {
     var logger = new (winston.Logger)({
         transports: [
           new (winston.transports.Console)(),
-          new (winston.transports.File)({ filename: 'winston.log' })
+          new (winston.transports.File)({ filename: 'logger.log' })
+        ]
+      });
+
+      var qlogger = new (winston.Logger)({
+        transports: [
+         new (winston.transports.File)({ filename: 'qlogger.log' })
         ]
       });
 
@@ -87,12 +93,15 @@ $(document).ready(function () {
     const MAM_ROOT_STATUS_SENDING = 'sending'
     const MAM_ROOT_STATUS_SENT = 'sent'
     const MAM_ROOT_STATUS_BLOCKED = 'blocked'
+    const MAM_ROOT_STATUS_ERROR = 'error'
 
     // status codes for outgoing messages (message.status)
     const MESSAGE_STATUS_SENT = 'sent'
     const MESSAGE_STATUS_NOT_FOUND = 'not_found'
     const MESSAGE_STATUS_ERROR = 'error'
     const MESSAGE_STATUS_SENDING = 'sending'
+    const MESSAGE_STATUS_QUEUEING = 'queueing'
+    const MESSAGE_STATUS_POWING = 'powing'
 
     const MAM_ROOT_TAG = 'MAM9ROOT9999999999999999999'
 
@@ -144,7 +153,7 @@ $(document).ready(function () {
 
         account.keyStatus = PUBLICKEY_STATUS_SENDING
         accountsStore.update(account)
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, addAccountResultsHandler, {account: account})
+        sendTransfers(transfer, addAccountResultsHandler, {account: account})
         showAccountsList();
     }
 
@@ -229,7 +238,6 @@ $(document).ready(function () {
     }
 
     var sendContactRequest = function(toContact) {
-        contactsStore.update(toContact)
         let mamState = getActiveMamState(toContact)
         var fromMamRoot = mamState.channel.next_root
         var tangleMessage = createMKEPMessage(toContact, fromMamRoot)
@@ -237,8 +245,7 @@ $(document).ready(function () {
         toContact.mamRootStatus = MAM_ROOT_STATUS_SENDING
         contactsStore.update(toContact)
         showContactsList();
-
-        sendTransfers([tangleMessage], tangleDepth, minWeightMagnitude, sendContactRequestResultsHandler, {contact: toContact})
+        sendTransfers([tangleMessage], sendContactRequestResultsHandler, {contact: toContact})
     }
 
     /*
@@ -277,13 +284,10 @@ $(document).ready(function () {
             message.inboundMamRoots = Object.keys(getActiveInboundMamRoots(toContact))
         }
         let mamState  = getActiveMamState(toContact)
-
-
-        logger.log("info", "createMessage getActiveMamState: %j", mamState);
+        logger.log("info", "createMessage mamMessage.state next_root %s", mamState.channel.next_root);
 
         let mamMessage = Mam.create(mamState, iota.utils.toTrytes(JSON.stringify(message)))
-        setActiveMamState(mamMessage.state)
-        logger.log("info", "createMessage mamMessage.state: %j", mamMessage.state);
+        logger.log("info", "createMessage mamState next_root %s", mamState.channel.next_root);
         let localMessage = {
             text: message.text,
             timestamp: message.timestamp,
@@ -291,6 +295,7 @@ $(document).ready(function () {
             from: toContact.account,
             mamAddress: mamMessage.address,
             mamRoot: mamMessage.root,
+            mamState: mamMessage.state,
             status: MESSAGE_STATUS_SENDING
        }
        localMessage = messagesStore.insert(localMessage)
@@ -299,6 +304,7 @@ $(document).ready(function () {
 
     var getActiveMamState = function(contact) {
         if(contact.mamData && contact.mamData.outBound && contact.mamData.outBound.activeMamState) {
+            logger.log("info", "contact.mamData.outBound.activeMamState %j", contact.mamData.outBound.activeMamState);
             return contact.mamData.outBound.activeMamState
         } else {
             return initializeActiveMamState(contact)
@@ -326,21 +332,6 @@ $(document).ready(function () {
         }
     }
 
-    var getMamStateByMamRoot = function(contact, mamRoot, setAsActive = false) {
-        let mamState = null
-        if(contact.mamData.outBound.mamStates) {
-            contact.mamData.outBound.mamStates.forEach(function(mamState2){
-                if(mamState2.channel.next_root === mamRoot) {
-                    mamState = mamState2
-                }
-            })
-        }
-        if(mamState && setAsActive) {
-            setActiveMamState(contact, mamState)
-        }
-        return mamState
-    }
-
     /*
         creates a tangle transaction bundle that publishes a message
     */
@@ -355,7 +346,7 @@ $(document).ready(function () {
         localMessage.status = MESSAGE_STATUS_SENDING
         messagesStore.update(localMessage)
 
-        sendTransfers(transfer, tangleDepth, minWeightMagnitude, sendMessageResultsHandler, {message: localMessage})
+        sendTransfers(transfer, sendMessageResultsHandler, {message: localMessage})
         showMessageList();
     }
 
@@ -379,6 +370,7 @@ $(document).ready(function () {
                 let mamRoots = getActiveInboundMamRoots(contact)
                 logger.log("info", "getMessages for %s", contact.name);
                 logger.log("info", "getMessages mamRoots %j", mamRoots);
+                let newestActiveMamRoots = {}
                 Object.keys(mamRoots).forEach(function(parentMamRoot) {
                     let mamRoot = parentMamRoot
                     logger.log("info", "getMessages parentMamRoot %s", parentMamRoot);
@@ -391,7 +383,6 @@ $(document).ready(function () {
                             let result = await Mam.fetch(mamRoot, 'private')
                             if(result) {
                                 let nextRoot = result.nextRoot
-                                logger.log("info", "getMessages nextRoot %s", nextRoot);
 
                                 result.messages.map(function(message){
                                     return iota.utils.fromTrytes(message)
@@ -409,6 +400,10 @@ $(document).ready(function () {
                                         // ignore message if it is not json
                                         return
                                     }
+                                    if(inboundMamRoots && inboundMamRoots.length > 0) {
+                                        updateContactFromMamMessage(contact,inboundMamRoots)
+                                    }
+
                                     if(!(text && timestamp)) {
                                         // ignore message if it is missing text and timestamp
                                         return
@@ -429,6 +424,7 @@ $(document).ready(function () {
                                         })
                                         contact.newMessages += 1
                                         updateActiveInboundMamRoots(contact, parentMamRoot, mamRoot)
+                                        newestActiveMamRoots[parentMamRoot] = mamRoot
                                         logger.log("info", "getMessages NEW message %j, activeInboundRoots %j", message, getActiveInboundMamRoots(contact))
                                         showContactsList()
                                     }
@@ -438,6 +434,7 @@ $(document).ready(function () {
                         fetch()
                     }
                 })
+                logger.log("info", "getMessages newestActiveMamRoots %j", newestActiveMamRoots)
             }
         })
         showMessageList()
@@ -453,6 +450,14 @@ $(document).ready(function () {
         }
         contact.activeMamRoots = activeMamRoots
         contactsStore.update(contact)
+    }
+
+    var updateContactFromMamMessage = function(contact, message) {
+
+        let inboundMamRoots = message.inboundMamRoots || []
+        inboundMamRoots.forEach(function(mamRootFromContact){
+
+        })
     }
 
     var getActiveInboundMamRoots = function(contact) {
@@ -603,10 +608,6 @@ $(document).ready(function () {
         return address && iota.valid.isAddress(address)
     }
 
-    var isValidToMamRoot = function(contact, toMamRoot) {
-        return getMamStateByMamRoot(contact, toMamRoot) !== null
-    }
-
     /**
      *
      * @param {*} trytes - an array of transaction trytes
@@ -681,15 +682,38 @@ $(document).ready(function () {
     }
 
     /*
-        updates all messages with status: sending to status: error
-        TODO: find out if messages were actually sent and update status appropriately
+        updates all messages not in status: sent to status: error
     */
     var updateSendingMessages = function() {
-        messages = messagesStore.find({
-                status: 'sending'
+        messagesStore.find({
+                status: {'$ne' : MESSAGE_STATUS_SENT}
         }).forEach(function (message) {
             message.status = MESSAGE_STATUS_ERROR
             messagesStore.update(message)
+        })
+    }
+
+   /*
+        updates all contacts not in status: sent to status: error
+    */
+    var updateSendingContacts = function() {
+        contactsStore.find({
+                status: {'$ne' : MAM_ROOT_STATUS_SENT}
+        }).forEach(function (contact) {
+            contact.status = MAM_ROOT_STATUS_ERROR
+            contactsStore.update(contact)
+        })
+    }
+
+   /*
+        updates all contacts not in status: sent to status: error
+    */
+    var updateSendingAccounts = function() {
+         accountsStore.find({
+                status: {'$ne' : PUBLICKEY_STATUS_OK}
+        }).forEach(function (account) {
+            account.keyStatus = PUBLICKEY_STATUS_ERROR
+            accountsStore.update(account)
         })
     }
 
@@ -724,21 +748,23 @@ $(document).ready(function () {
         if (error) {
             if(results && results.account) {
                 results.account.keyStatus = PUBLICKEY_STATUS_ERROR
-                log('error', "addAccountResultsHandler error: "+JSON.stringify(error))
+                logger.log('info', "addAccountResultsHandler error: %j", error)
                 results.account.keyStatus = error.toString()
+                accountsStore.update(results.account)
             }
         } else {
             if(results && results.account) {
                 results.account.keyStatus = PUBLICKEY_STATUS_OK
+                accountsStore.update(results.account)
             }
         }
-        accountsStore.update(results.account)
+
         showAccountsList()
     }
 
     var sendMessageResultsHandler = function(error, results) {
         if (error) {
-            log('error', "sendMessageResultsHandler error", error)
+            logger.log('info', "sendMessageResultsHandler error", error)
             if(results && results.message) {
                 results.message.status = 'error'
                 results.message.errorMessage = error
@@ -746,6 +772,8 @@ $(document).ready(function () {
         } else {
             if(results && results.message) {
                 results.message.status = 'sent'
+                let contact = getContact(results.message.to)
+                setActiveMamState(contact, results.message.mamState)
             }
         }
         messagesStore.update(results.message)
@@ -754,10 +782,12 @@ $(document).ready(function () {
 
     var sendContactRequestResultsHandler = function(error, results) {
         if (error) {
-            log('error', "sendContactRequestResultsHandler error: "+JSON.stringify(error))
+            logger.log('info', "sendContactRequestResultsHandler error: %j", error)
             if(results && results.contact) {
                 results.contact.mamRootStatus = MAM_ROOT_STATUS_ERROR
                 results.contact.mamRootStatusMessage = "Error in sendContactRequestResultsHandler"+error
+                contactsStore.update(results.contact)
+                showContactsList()
             }
         } else {
             if(results && results.contact) {
@@ -765,13 +795,14 @@ $(document).ready(function () {
                 results.contact.mamRootStatusMessage = ''
             }
         }
+        logger.log('info', "sendContactRequestResultsHandler updating contact %j: "+JSON.stringify(results.contact))
         contactsStore.update(results.contact)
         showContactsList()
     }
 
     var addContactResultHandler = function(error, publicKeys) {
         if(error) {
-            log('error', "addContactResultHandler error: "+error)
+            logger.log('info', "addContactResultHandler error: "+error)
         } else {
             publicKeys.forEach(function(publicKey){
                 var exists = contactsStore.find({
@@ -786,10 +817,10 @@ $(document).ready(function () {
         }
     }
 
-    var sendTransfers = function(transfers, depth, minWeightMagnitude, callback, callbackOptions={}) {
+    var sendTransfers = function(transfers, callback, callbackOptions={}) {
 
         // Validity check for number of arguments
-        if (arguments.length < 4) {
+        if (arguments.length < 2) {
             return callback(new Error("Invalid number of arguments"));
         }
 
@@ -808,44 +839,42 @@ $(document).ready(function () {
                 return iota.utils.transactionTrytes(transactionObject)
             })
             // END workaround
-
-            iota.api.getTransactionsToApprove(depth, function (error, toApprove) {
-                if (error) return callback(error, callbackOptions)
-                addToSendingQueue(toApprove, minWeightMagnitude, trytes, callback, callbackOptions)
-            })
+            addToSendingQueue(trytes, callback, callbackOptions)
         })
     }
 
-    var addToSendingQueue = function(toApprove, minWeightMagnitude, trytes, callback, callbackOptions) {
+    var addToSendingQueue = function(trytes, callback, callbackOptions) {
         const queueItem = {
-            toApprove: toApprove,
             trytes: trytes,
             callback: callback,
             callbackOptions: callbackOptions
+        }
+       if(callbackOptions.message) {
+            callbackOptions.message.status = MESSAGE_STATUS_QUEUEING
+            messagesStore.update(callbackOptions.message)
+            showMessageList()
         }
         sendingQueue.push(queueItem)
     }
 
     var sendNextMessage = function() {
         if(ccurlAvailable && sendingQueue.length > 0) {
-            const ccurlPath = getCcurlPath()
+
             let queueItem = sendingQueue.shift()
             let callback = queueItem.callback
             let callbackOptions = queueItem.callbackOptions
-
+            if(callbackOptions.message) {
+                callbackOptions.message.status = MESSAGE_STATUS_POWING
+                messagesStore.update(callbackOptions.message)
+                showMessageList()
+            }
             ccurlAvailable = false
-            ccurlInterface(queueItem.toApprove.trunkTransaction, queueItem.toApprove.branchTransaction, minWeightMagnitude, queueItem.trytes, ccurlPath, function (error, attached) {
-                ccurlAvailable = true
-                if (error) return callback(error, callbackOptions)
-
-                iota.api.storeTransactions(attached, function (error, success) {
-                    if (error) return callback(error, callbackOptions);
-                })
-                iota.api.broadcastTransactions(attached, function (error, success) {
-                    if (error) return callback(error, callbackOptions);
-                        return callback(null, Object.assign({},success, callbackOptions))
-                })
-                iota.api.getNodeInfo(function (error, results) {})
+            iota.api.sendTrytes(queueItem.trytes, tangleDepth, minWeightMagnitude, function (error, success) {
+                if (error) {
+                    return callback(error, callbackOptions);
+                } else {
+                    return callback(null, Object.assign({},success, callbackOptions))
+                }
             })
         }
     }
@@ -923,7 +952,7 @@ $(document).ready(function () {
     var pendingContactInfo = function(contact) {
         switch(contact.mamRootStatus) {
             case MAM_ROOT_STATUS_SENDING:
-                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">sending initialmessage key to <b>'+contact.name + '</b>...</span>'
+                return '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span class="status">sending initial message key to <b>'+contact.name + '</b>...</span>'
             default:
                 return ''
         }
@@ -986,6 +1015,7 @@ $(document).ready(function () {
                 //return
                 let userName = getKeyUsername(contact)
                 if(!contact.deleted && !contact.error) {
+                    //logger.log("info", "showContactsList %j", contact )
                     const isCurrentContact = currentContact && contact.address == currentContact.address
                     var tag = getPublicKeyLabel(contact.publicKey)
                     let deleteButton = '<input type="radio" name="contact" id="deleteContact' + tag + '" value="'+ contact.address +'"><a class="delete"><span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span></a>'
@@ -1031,6 +1061,10 @@ $(document).ready(function () {
                     info = '<span class="time">' + formatTimestamp(message.timestamp) + '</span>'
                 } else if(message.status === MESSAGE_STATUS_SENDING) {
                     info = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span>sending...</span>'
+                } else if(message.status === MESSAGE_STATUS_QUEUEING) {
+                    info = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span>queueing...</span>'
+                } else if(message.status === MESSAGE_STATUS_POWING) {
+                    info = '<span class="glyphicon glyphicon-cog glyphicon-cog-animate"></span> <span>doing POW...</span>'
                 } else if(message.status === MESSAGE_STATUS_NOT_FOUND || message.status === MESSAGE_STATUS_ERROR) {
                     info = '<span class="glyphicon glyphicon-exclamation-sign"></span> <span class="status">message not sent. <input type="radio" name="fromAddress" id="message' + messageId + '" value="'+ messageId +'"><button type="button" class="retry btn btn-default btn-xs"><span class="glyphicon glyphicon-repeat" aria-hidden="true"></span> Resend</button> </span> ' + deleteButton
                 } else {
@@ -1116,6 +1150,7 @@ $(document).ready(function () {
     */
     var afterDataStoresInitialized = function() {
         updateSendingMessages()
+        updateSendingContacts()
         refreshAccountKeys()
         refreshContactKeys()
         showAccountsList()
@@ -1482,5 +1517,11 @@ $(document).ready(function () {
             return {error: error.toString()}
         }
     }
+
+    var localAttachToTangle = function(trunkTransaction, branchTransaction, minWeightMagnitude, trytes, callback) {
+        ccurlInterface(trunkTransaction, branchTransaction, minWeightMagnitude, trytes, getCcurlPath(), callback)
+    }
+    iota.api.attachToTangle = localAttachToTangle;
+    iota.api.__proto__.attachToTangle = localAttachToTangle;
 
 });
