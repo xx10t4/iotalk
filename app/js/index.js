@@ -111,10 +111,10 @@ $(document).ready(function () {
     function createAccount(name) {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1 }, function (error, addresses) {
             if (error) {
-                log('error', "createAccount error: "+error);
+                logger.log('error', "createAccount error: "+error);
             } else {
                 if (addresses.length != 1) {
-                    log('error', "createAccount no addresses found!");
+                    logger.log('error', "createAccount no addresses found!");
                     return;
                 }
                 var address = addresses[0];
@@ -169,7 +169,7 @@ $(document).ready(function () {
 
         getPublicKey(tag, function(error, publicKeys){
             if(error) {
-                log('error', "initializeContact error: "+error)
+                logger.log('error', "initializeContact error: "+error)
             } else {
                 let contact = null;
                 publicKeys.forEach(function(publicKey){
@@ -469,10 +469,10 @@ $(document).ready(function () {
         let addresses = accounts.map(function(account){ return account.address})
         iota.api.findTransactions({ addresses: addresses, tags: [MAM_ROOT_TAG]}, function (error, results) {
             if (error) {
-                log('error',"Error in getContactRequests",error)
+                logger.log('error',"Error in getContactRequests",error)
             } else if (results.length == 0) {
                 // handle empty results
-                log('warning',"no results in getContactRequests callback for addresses",addresses)
+                logger.log('warning',"no results in getContactRequests callback for addresses",addresses)
             } else {
 
                 // TODO store seenTransactions for persistence across login sessions
@@ -485,7 +485,7 @@ $(document).ready(function () {
                 })
                 iota.api.getTrytes(newTransactions, function (error, trytes) {
                     if (error) {
-                        log('error', error);
+                        logger.log('error', error);
                     } else {
                         let messages = messagesFromBundles(trytes);
                         let groupedMessages = {}
@@ -493,7 +493,7 @@ $(document).ready(function () {
                             let message = messages[i]
                             let account = accounts.find((acc) => { return acc.address === message.address})
                             if(!account) {
-                                log('error', "No account exists for contact request to address "+ message.address)
+                                logger.log('error', "No account exists for contact request to address "+ message.address)
                                 continue
                             }
                             groupedMessages[account.address] = groupedMessages[account.address] || {}
@@ -596,7 +596,7 @@ $(document).ready(function () {
                        contactsStore.update(c[0])
                         showContactsList();
                     } else {
-                        log('error', 'Found '+ c.length +' contacts for address '+publicKey.address)
+                        logger.log('error', 'Found '+ c.length +' contacts for address '+publicKey.address)
                     }
                 })
             })
@@ -817,6 +817,10 @@ $(document).ready(function () {
         }
     }
 
+
+    /*
+     functions for sending transactions to the Tangle
+    */
     var sendTransfers = function(transfers, callback, callbackOptions={}) {
 
         // Validity check for number of arguments
@@ -884,7 +888,7 @@ $(document).ready(function () {
             address: { '$regex': address }
         })
         if(found.length !== 1){
-            log('error', "warning: found "+found.length+" accounts for "+address)
+            logger.log('error', "warning: found "+found.length+" accounts for "+address)
         }
         return found[0]
     }
@@ -894,7 +898,7 @@ $(document).ready(function () {
             address: { '$regex': address }
         })
         if(found.length !== 1){
-            log('error', "warning: found "+found.length+" contacts for "+address)
+            logger.log('error', "warning: found "+found.length+" contacts for "+address)
         }
         return found[0]
     }
@@ -1126,10 +1130,10 @@ $(document).ready(function () {
     var setDataStores = function() {
         iota.api.getNewAddress(seed, { 'checksum': true, total: 1, index: 0 }, function (error, addresses) {
             if (error) {
-                log('error', error);
+                logger.log('error', error);
             } else {
                 if (addresses.length != 1) {
-                    log('error', "no addresses found!");
+                    logger.log('error', "no addresses found!");
                     return;
                 }
                 var address = addresses[0];
@@ -1163,6 +1167,16 @@ $(document).ready(function () {
         //migrate()
     }
 
+    var checkForNewMessages = function () {
+        //getMessages()
+        getContactRequests()
+        setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
+    }
+
+    var checkMessageQueue = function () {
+        sendNextMessage()
+        setTimeout(checkMessageQueue, 1000)
+    }
 
     var initConfiguration = function() {
         var node_address = configuration.get('node_address').value
@@ -1184,50 +1198,6 @@ $(document).ready(function () {
             })
         }
     }
-
-    var validNodeAddress = function(address) {
-        if(!address) {
-            return false
-        }
-        return address.match(/^https?:\/\/.+\:.+/)
-    }
-
-    var createDatastoreFilename = function(type, address) {
-        return path.join(electron.remote.app.getPath('userData'), address + '.' + type + '.data');
-    }
-
-    var copyToClipboard = function (text) {
-        electron.clipboard.writeText(text)
-        toastr.info("Copied to clipboard", null, {timeOut: 500})
-    }
-
-    var getCcurlPath = function() {
-        var is64BitOS = process.arch == "x64";
-        // TODO find a better way to manage packaged vs unpackaged file paths
-        var isDev = process.env.NODE_ENV === 'development'
-        var base_path = isDev ? path.join(electron.remote.app.getAppPath(), "lib", "ccurl") :
-                            path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl")
-        if (process.platform == "win32") {
-            return path.join(base_path, "win" + (is64BitOS ? "64" : "32"));
-        } else if (process.platform == "darwin") {
-            return path.join(base_path, "mac");
-        } else {
-            return path.join(base_path, "lin" + (is64BitOS ? "64" : "32"));
-        }
-    }
-
-    var checkForNewMessages = function () {
-        //getMessages()
-        getContactRequests()
-        setTimeout(checkForNewMessages, MESSAGE_CHECK_FREQUENCY*1000)
-    }
-
-    var checkMessageQueue = function () {
-        sendNextMessage()
-        setTimeout(checkMessageQueue, 1000)
-    }
-
-
 
 
     /****************** UI Event handlers ********************/
@@ -1435,6 +1405,37 @@ $(document).ready(function () {
     }
 
     // Utilities
+
+    var validNodeAddress = function(address) {
+        if(!address) {
+            return false
+        }
+        return address.match(/^https?:\/\/.+\:.+/)
+    }
+
+    var createDatastoreFilename = function(type, address) {
+        return path.join(electron.remote.app.getPath('userData'), address + '.' + type + '.data');
+    }
+
+    var copyToClipboard = function (text) {
+        electron.clipboard.writeText(text)
+        toastr.info("Copied to clipboard", null, {timeOut: 500})
+    }
+
+    var getCcurlPath = function() {
+        var is64BitOS = process.arch == "x64";
+        // TODO find a better way to manage packaged vs unpackaged file paths
+        var isDev = process.env.NODE_ENV === 'development'
+        var base_path = isDev ? path.join(electron.remote.app.getAppPath(), "lib", "ccurl") :
+                            path.join(electron.remote.app.getAppPath(), "..", "lib", "ccurl")
+        if (process.platform == "win32") {
+            return path.join(base_path, "win" + (is64BitOS ? "64" : "32"));
+        } else if (process.platform == "darwin") {
+            return path.join(base_path, "mac");
+        } else {
+            return path.join(base_path, "lin" + (is64BitOS ? "64" : "32"));
+        }
+    }
 
     var copyObject = function(obj) {
         return JSON.parse(JSON.stringify(obj))
