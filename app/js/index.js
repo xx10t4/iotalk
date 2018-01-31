@@ -45,15 +45,9 @@ $(document).ready(function () {
     var logger = new (winston.Logger)({
         transports: [
           new (winston.transports.Console)(),
-          new (winston.transports.File)({ filename: 'logger.log' })
+          new (winston.transports.File)({ filename: path.join(electron.remote.app.getPath('userData'), 'logger.log') })
         ]
-      });
-
-      var qlogger = new (winston.Logger)({
-        transports: [
-         new (winston.transports.File)({ filename: 'qlogger.log' })
-        ]
-      });
+    });
 
     // Initialize with bogus config until the real config is loaded
     var iota = new IOTA({
@@ -80,7 +74,7 @@ $(document).ready(function () {
     var value = 0;
     var minWeightMagnitude = 14;
     var tangleDepth = 4;
-    const MESSAGE_CHECK_FREQUENCY = 30 // seconds
+    const MESSAGE_CHECK_FREQUENCY = 15 // seconds
     const DATA_STORE_VERSION = 1
 
     // status codes for account and contact public keys (user.keyStatus)
@@ -364,7 +358,8 @@ $(document).ready(function () {
                 Object.keys(mamRoots).forEach(function(parentMamRoot) {
                     let mamRoot = parentMamRoot
                     if(mamRoots[parentMamRoot] && mamRoots[parentMamRoot].length > 0) {
-                        mamRoot = mamRoots[parentMamRoot]
+                        // TODO try use the most recent active root to avoid re-fetching all messages every time
+                        // mamRoot = mamRoots[parentMamRoot]
                     }
                     if(isValidAddress(mamRoot)) {
                         getMessageFromMamRoot(mamRoot, parentMamRoot, contact, messageFromMamRootHandler)
@@ -1533,16 +1528,6 @@ $(document).ready(function () {
         }
         return ''
     }
-
-    var log = function(level, message, object={}) {
-        const log_levels = [
-            'debug', 'warning', 'error'
-        ]
-        if(log_levels.indexOf(level) >= log_levels.indexOf(LOG_LEVEL)) {
-            console.log(level + ': ' + message + ': '+JSON.stringify(object))
-        }
-    }
-
 
     /*
         ntru functions

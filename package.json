@@ -1,6 +1,6 @@
 {
-  "name": "iota1k",
-  "version": "0.0.8",
+  "name": "iotalk",
+  "version": "0.1.0",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
@@ -21,8 +21,10 @@
   },
   "repository": "https://github.com/xx10t4/iota1k",
   "keywords": [
-    "IOTa1k",
+    "iotalk",
     "iota",
+    "messages",
+    "messaging",
     "messenger",
     "tangle"
   ],
@@ -45,15 +47,15 @@
     "request": "2.83.0",
     "lokijs": "1.5.0",
     "babel-polyfill": "6.26.0",
-    "toastr":"2.1.4"
+    "toastr":"2.1.4",
+    "winston":"2.4.0"
   },
   "devDependencies": {
     "electron": "1.7.9",
     "electron-builder": "19.48.3",
     "electron-rebuild":"1.6.0",
     "follow-redirects":"1.2.6",
-    "rimraf": "2.6.2",
-    "winston":"2.4.0"
+    "rimraf": "2.6.2"
   },
   "build": {
     "directories": {
