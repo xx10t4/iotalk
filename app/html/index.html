@@ -40,17 +40,20 @@
                     <h4>Accounts</h4>
                     <ul id="accountsList" class="userList">
                         <li>
-                            <p>To set up a new account click the <span class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above. You can create as many accounts as you want. Think of them like email addresses.
-                            <p>Start by choosing a nickname, or handle, for your account. Handles should be short, and must NOT have a <b>@</b> character in them. IOTAlk will generate a unique tag for the account. The account <b>address</b> will be a combination of the handle and tag and will look similar to an email address, something like <b>myhandle@FJKEJISENRNDKRMTNYJSKWMTNYT</b></p>
+                            <p>To set up a new account click the <span class="add-user btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above. You can create as many accounts as you want. Think of them like email addresses.
+                            <p>Start by choosing a nickname, or handle, for your account. Handles should be short, and must NOT have a <b>@</b> character in them. iotalk will generate a unique tag for the account. The account <b>address</b> will be a combination of the handle and tag and will look similar to an email address, something like <b>myhandle@FJKEJISENRNDKRMTNYJSKWMTNYT</b></p>
                         </li>
                     </ul>
 
                     <br clear="all" />
-                    <a href="#contactAddModal" role="button" class="add-user btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
-                    <h4>Contacts</h4>
-                    <ul id="contactsList" class="userList">
-                        <li>Use the <span class="btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above to add contacts. Enter a valid IOTAlk address.</li>
-                    </ul>
+                    <div id="contactsListHolder" class="hidden">
+                        <a href="#contactAddModal" role="button" class="add-user btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></a>
+                        <h4 id="contactListTitle"></h4>
+                        <ul id="contactsList" class="userList">
+                            <li>Use the <span class="add-user btn btn-xs btn-default" data-toggle="modal"><span class="glyphicon glyphicon-plus"></span></span> button above to add contacts. Enter a valid iotalk address.</li>
+                        </ul>
+                    </div>
+                    <!--<p><a id="getMessages">Get Mesages</a></p>-->
                 </div>
             </div>
             <div class="col-md-8">
