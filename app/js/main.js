@@ -1,6 +1,6 @@
 /*
 
-iota1k is a privacy-minded messaging app built on the IOTA Tangle.
+iotalk is a privacy-minded messaging app built on the IOTA Tangle.
 Copyright (C) 2017  xx10t4 <xx10t4@gmail.com>
 
 This program is free software: you can redistribute it and/or modify
@@ -37,13 +37,13 @@ let mainWindow
 function createWindow () {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1200, 
+    width: 1200,
     height: 600,
-    icon: path.join(__dirname, '../../images', 'iota1k_logo.png')
+    icon: path.join(__dirname, '../../images', 'iotalk_logo.png')
   })
 
   menu(electron,mainWindow)
-  
+
   // and load the index.html of the app.
   mainWindow.loadURL(url.format({
     pathname: path.join(__dirname, '../html/index.html'),

@@ -51,7 +51,7 @@
     "winston":"2.4.0"
   },
   "devDependencies": {
-    "electron": "1.7.9",
+    "electron": "1.7.11",
     "electron-builder": "19.48.3",
     "electron-rebuild":"1.6.0",
     "follow-redirects":"1.2.6",
@@ -65,7 +65,7 @@
     "publish": [
       "github"
     ],
-    "appId": "iota1k",
+    "appId": "iotalk",
     "extraResources": [
       "lib/**/*"
     ],
