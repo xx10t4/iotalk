@@ -46,6 +46,10 @@ html {
 
 }
 
+.col-md-4, .col-md-8{
+  min-width: 450px;
+}
+
 .toolbar {
   position: absolute;
   top: 0px;
@@ -138,9 +142,10 @@ html {
 
 .users-section {
   padding: 20px;
-  background-color: #123d43;
-  color: #5D939B;
-  height: 100%;
+  background-color: #159957;
+  background-image: linear-gradient(105deg, #155799, #159957);
+  color: rgba(255,255,255,0.6);
+    height: 100%;
 }
 
 .users-section h4 {
@@ -152,8 +157,8 @@ html {
 }
 
 .users-section .btn-xs {
-  border-color: #5D939B;
-  background-color: #123d43;
+  border-color: rgba(255,255,255,0.3);
+  background-color: #ffffff;
 }
 
 .users-section .add-user.btn-xs {
@@ -195,7 +200,8 @@ html {
 }
 
 .users-section label.current {
-  background-color: #04a997;
+  border-color: rgba(255,255,255,0.3);
+  background-color: rgba(255,255,255,0.12);
   color: #ffffff;
   border-radius: 5px;
 }

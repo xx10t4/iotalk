@@ -21,7 +21,7 @@
                 <div id="login-message" class="hidden"> </div>
                 <div class="form-group">
                     <span id="seedChecksum"><span class="glyphicon glyphicon-question-sign"></span></span>
-                    <input type="password" class="form-control" name="userSeed" id="userSeed" value="" placeholder="Enter seed" />
+                    <input type="password" class="form-control" name="userSeed" id="userSeed" value="CPPSMW9FSZASGKPMKFMXXABHJVZLSAOFPWRMTXNERBMWOL9DGBUPTORLCZMGUPDJCZ9HGMUXYRSLE9CNN" placeholder="Enter seed" />
                 </div>
                 <div class="login_button">
                     <button class="btn btn-success btn-lg has-spinner" id="login">Login</button>
@@ -58,7 +58,7 @@
             </div>
             <div class="col-md-8">
                 <div class="toolbar">
-                    <a href="#configurationModal" data-toggle="modal"><span class="glyphicon glyphicon-cog" rel="tooltip" title="Configuration"></span></a>
+                    <a href="#configurationModal" data-toggle="modal"><span class="glyphicon glyphicon-cog" rel="tooltip" title="Settings"></span></a>
                     <a href="" id="logoutBtn"><span class="glyphicon glyphicon-log-out" rel="tooltip" title="Log out" ></span></a>
                 </div>
                 <div id="alertsHolder"></div>
@@ -126,17 +126,20 @@
                     <div class="modal-body">
                         <h5>Node Address</h5>
                         <div class="form-group">
-                            <input type="text" class="form-control" id="config_node_address" placeholder="Node address, example: https://peanut.iotasalad.org:14265">
+                            <input type="text" class="form-control" id="config_node_address" placeholder="Node address, example: https://peanut.iotasalad.org:14265"/>
                         </div>
-                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="save_config">save</button>
+                        <h5>Notifications</h5>
+                        <div class="form-group">
+                            <input type="checkbox" id="config_notifications_on" value="true" /> turn on desktop notifications
+                        </div>
+
                     </div>
-                    <div class="modal-body">
-                        <h5>Blocked Users</h4>
-                        <ul id="deletedContactsList" class="userList">
-                        </ul>
-                    </div>
+                    <!--<div class="modal-body">
+                        <h5>Blocked Users</h4>-->
+                        <ul id="deletedContactsList" class="userList"></ul>
+                    <!--</div>-->
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" data-dismiss="modal">close</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" id="save_config">save</button>
                     </div>
                 </div>
             </div>

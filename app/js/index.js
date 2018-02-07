@@ -65,6 +65,7 @@ $(document).ready(function () {
     var currentAccount;
     var currentContact;
     var seenTransactions = []
+    var showNotifications;
 
     // queue for sending transactions to the tangle
     var sendingQueue = [];
@@ -561,9 +562,9 @@ $(document).ready(function () {
         })
         let contact = exists[0]
         if(!contact) {
-            createContact(messages[0])
-                return
-            }
+            createContact(messages)
+            return
+        }
         if(contact.blocked) {
             return
         }
@@ -580,7 +581,8 @@ $(document).ready(function () {
         showContactsList();
     }
 
-    var createContact = function(message) {
+    var createContact = function(messages) {
+        let message = messages[0]
         let exists = contactsStore.find({
             account: message.account,
             address: message.fromAddress
@@ -602,12 +604,13 @@ $(document).ready(function () {
                     let c = contactsStore.find({
                         address: publicKey.address,
                         account: message.account
-                                        })
+                    })
                     if(c && c.length === 1){
                         c[0].publicKey = publicKey.publicKey
                         c[0].name = publicKey.name
                         c[0].bundle = publicKey.bundle
-                       contactsStore.update(c[0])
+                        contactsStore.update(c[0])
+                        upateContactFromContactRequestMessages(messages) // re-process the messages
                         showContactsList();
                     } else {
                         logger.log('error', 'Found '+ c.length +' contacts for address '+publicKey.address)
@@ -1218,6 +1221,7 @@ $(document).ready(function () {
     }
 
     var initConfiguration = function() {
+        // Node address config
         var node_address = configuration.get('node_address').value
         $('#config_node_address').val(node_address)
         if(!validNodeAddress(node_address)) {
@@ -1236,6 +1240,9 @@ $(document).ready(function () {
                 }
             })
         }
+        // Notification prefs config
+        showNotifications = configuration.get('notifications_on').value
+        $('#config_notifications_on').prop('checked', showNotifications)
     }
 
 
@@ -1272,10 +1279,15 @@ $(document).ready(function () {
 
     $("#save_config").on("click", function () {
         [
-            'node_address'
+            'node_address',
+            'notifications_on'
         ].forEach(function(key, idx, keys){
             var config = configuration.get(key)
-            config.value = $("#config_"+key).val()
+            var newValue = $("#config_"+key).val()
+            if($("#config_"+key).attr('type') === 'checkbox'){
+                newValue = $("#config_"+key).is(':checked')
+            }
+            config.value = newValue
             configuration.set(config)
             if(idx === (keys.length - 1)){
                 // after last config is saved, redo initialization
@@ -1283,6 +1295,11 @@ $(document).ready(function () {
             }
         })
     })
+
+    $("#configurationModal").on("hide.bs.modal", function () {
+        //initConfiguration()
+    })
+
 
     $('#contactsList').on('click','label',function() {
         var username = $(this).prev().val()
@@ -1464,7 +1481,7 @@ $(document).ready(function () {
         if(!address) {
             return false
         }
-        return address.match(/^https?:\/\/.+\:.+/)
+        return address.match(/^https?:\/\/.+(\:.+)?/)
     }
 
     var createDatastoreFilename = function(type, address) {
