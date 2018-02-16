@@ -447,6 +447,11 @@ $(document).ready(function () {
                         parentMamRoot: parentMamRoot
                     })
                     contact.newMessages += 1
+                    if(showNotifications) {
+                        new Notification('iotalk', {
+                            body: (contact.name + ': '+text).substr(0, 100)
+                        })
+                    }
                     updateActiveInboundMamRoots(contact, parentMamRoot, nextRoot)
                     showContactsList()
                     showMessageList()

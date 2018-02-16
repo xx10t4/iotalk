@@ -1,6 +1,6 @@
 {
   "name": "iotalk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "IOTA based messenging app",
   "main": "app/js/main.js",
   "scripts": {
